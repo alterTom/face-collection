@@ -1,0 +1,9 @@
+listen_address = "127.0.0.1"
+listen_port = 17653
+camera_index = 0
+capture_width = 1280
+capture_height = 720
+preview_fps = 5
+jpeg_quality = 85
+max_image_bytes = 2097152
+camera_timeout_seconds = 10
