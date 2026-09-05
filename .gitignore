@@ -1,5 +1,7 @@
 **/bin/
 **/obj/
 publish/
+installer-output/
+TestResults/
 *.user
 *.suo

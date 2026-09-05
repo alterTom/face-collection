@@ -10,11 +10,52 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
+using FaceCaptureAgent.Desktop;
+using FaceCaptureAgent.Diagnostics;
 
 namespace FaceCaptureAgent.Tests.Hosting;
 
 public sealed class WebSocketHostTests
 {
+    [Fact]
+    public async Task CaptureFlow_LogsSuccessFailureAndDisconnectWithoutPhotoData()
+    {
+        await using var factory = CreateFactory(new FakeCameraService());
+        using var socket = await ConnectAsync(factory);
+        var log = factory.Services.GetRequiredService<ActivityLog>();
+        await SendAsync(socket, """{"type":"capture","requestId":"too-early"}""");
+        await ReceiveJsonAsync(socket);
+        await SendAsync(socket, """{"type":"camera.open","requestId":"open"}""");
+        await ReceiveJsonAsync(socket);
+        await SendAsync(socket, """{"type":"capture","requestId":"photo"}""");
+        var photo = await ReceiveJsonAsync(socket);
+        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", TestContext.Current.CancellationToken);
+
+        var history = string.Join("\n", log.Snapshot().Select(entry => entry.Text));
+        Assert.Contains("客户端已连接", history);
+        Assert.Contains("抓拍照片失败：INVALID_STATE", history);
+        Assert.Contains("打开摄像头成功", history);
+        Assert.Contains("抓拍照片成功", history);
+        Assert.Contains("客户端已断开连接", history);
+        Assert.DoesNotContain(photo.GetProperty("data").GetProperty("base64").GetString()!, history);
+    }
+
+    [Fact]
+    public async Task ApplicationStopping_WithOpenCamera_ReleasesCamera()
+    {
+        var camera = new FakeCameraService();
+        await using var factory = CreateFactory(camera);
+        using var socket = await ConnectAsync(factory);
+        await SendAsync(socket, """{"type":"camera.open","requestId":"open"}""");
+        await ReceiveJsonAsync(socket);
+
+        factory.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>().StopApplication();
+
+        await camera.Closed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.False(camera.IsOpen);
+        Assert.Equal(1, camera.CloseCount);
+    }
+
     [Fact]
     public async Task NormalHttpGetToFace_ReturnsBadRequest()
     {
@@ -102,6 +143,8 @@ public sealed class WebSocketHostTests
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
             {
+                var tray = services.Single(service => service.ImplementationType == typeof(TrayService));
+                services.Remove(tray);
                 services.RemoveAll<ICameraService>();
                 services.AddSingleton<ICameraService>(camera);
             }));

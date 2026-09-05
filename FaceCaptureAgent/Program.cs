@@ -2,6 +2,8 @@ using System.Net;
 using FaceCaptureAgent.Camera;
 using FaceCaptureAgent.Configuration;
 using FaceCaptureAgent.Sessions;
+using FaceCaptureAgent.Diagnostics;
+using FaceCaptureAgent.Desktop;
 
 var configPath = ResolveConfigPath(args);
 var agentOptions = TomlOptionsLoader.Load(configPath);
@@ -10,6 +12,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(server =>
     server.Listen(IPAddress.Parse(agentOptions.ListenAddress), agentOptions.ListenPort));
 builder.Services.AddSingleton(agentOptions);
+builder.Services.AddSingleton<ActivityLog>();
+builder.Services.AddHostedService<TrayService>();
 builder.Services.AddSingleton<CameraLeaseManager>();
 builder.Services.AddTransient<ICameraService, OpenCvCameraService>();
 
@@ -43,10 +47,16 @@ app.Map("/face", async context =>
         socket,
         context.RequestServices.GetRequiredService<ICameraService>(),
         context.RequestServices.GetRequiredService<CameraLeaseManager>(),
-        agentOptions);
-    await connection.RunAsync(context.RequestAborted);
+        agentOptions,
+        context.RequestServices.GetRequiredService<ActivityLog>());
+    using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+        context.RequestAborted, app.Lifetime.ApplicationStopping);
+    await connection.RunAsync(cancellation.Token);
 });
 
+var activityLog = app.Services.GetRequiredService<ActivityLog>();
+app.Lifetime.ApplicationStarted.Register(() => activityLog.Write($"服务已启动：{agentOptions.ListenAddress}:{agentOptions.ListenPort}"));
+app.Lifetime.ApplicationStopping.Register(() => activityLog.Write("服务正在停止"));
 app.Run();
 
 static string ResolveConfigPath(string[] arguments)

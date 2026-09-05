@@ -41,6 +41,14 @@ dotnet run --project FaceCaptureAgent\FaceCaptureAgent.csproj -- --config D:\abs
 
 `--config` 不接受相对路径；配置缺失或不合法时程序拒绝启动。
 
+启动后，任务栏通知区域（“显示隐藏的图标”）中会出现 FaceCaptureAgent 图标。
+单击图标或右键选择“查看日志”，可查看带时间的连接、打开/关闭摄像头、
+预览、抓拍和断开连接日志，失败操作显示错误码。日志仅保留本次运行最近
+1,000 条，不写入磁盘，不记录照片、Base64 或请求内容。
+关闭日志窗口后程序继续在后台运行；右键图标选择“退出”会停止服务、
+关闭活动连接、释放摄像头并移除托盘图标。
+图标显示在隐藏区域还是直接显示在任务栏，由 Windows 通知区域设置决定。
+
 确认监听范围：
 
 ```powershell
@@ -133,3 +141,32 @@ SDK 方法：`connect`、`getSystemInfo`、`listDevices`、`open`、`startPrevie
 ```
 
 发布目录中的 `config.toml` 必须和可执行文件放在一起。程序不会存储预览帧、JPEG 或 Base64；请勿在业务页面日志中打印完整 Base64。
+
+## 构建后台自启动安装包
+
+要求本机已安装 Inno Setup 6。在仓库根目录执行：
+
+```powershell
+.\scripts\build-installer.ps1
+```
+
+也可以指定版本或编译器路径：
+
+```powershell
+.\scripts\build-installer.ps1 -Version 1.0.0 `
+  -IsccPath 'D:\appInstall\Inno Setup 6\ISCC.exe'
+```
+
+输出为 `installer-output/FaceCaptureAgent-Setup-x64.exe`。安装包是 Windows x64 当前用户安装程序，不要求管理员权限，也不要求目标电脑预装 .NET。程序默认安装到 `%LocalAppData%\Programs\FaceCaptureAgent`，安装完成后立即在后台启动，并通过 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 在用户登录时自动启动。程序没有控制台窗口，仍只监听 `127.0.0.1:17653`。覆盖安装或升级不会改写已有的 `config.toml`。
+
+可在“设置 → 应用 → 已安装的应用”中卸载。安装包会在卸载时终止后台进程并删除登录自启动项。需要做完整安装冒烟验证时执行：
+
+```powershell
+.\scripts\test-installer.ps1
+```
+
+该脚本会临时安装、执行覆盖升级、验证配置保留、后台进程、回环监听和路径限定卸载，然后自动清理。运行前不能有其他 `FaceCaptureAgent.exe` 进程、同名自启动项或已注册的 FaceCaptureAgent 安装。发布目录清理可单独验证：
+
+```powershell
+.\scripts\test-publish-cleanup.ps1
+```

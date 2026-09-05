@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using FaceCaptureAgent.Camera;
 using FaceCaptureAgent.Configuration;
 using FaceCaptureAgent.Protocol;
+using FaceCaptureAgent.Diagnostics;
 
 namespace FaceCaptureAgent.Sessions;
 
@@ -13,22 +14,26 @@ public sealed class WebSocketConnection
     private readonly ICameraService _camera;
     private readonly CameraLeaseManager _leaseManager;
     private readonly AgentOptions _options;
+    private readonly ActivityLog? _log;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
 
     public WebSocketConnection(
         WebSocket socket,
         ICameraService camera,
         CameraLeaseManager leaseManager,
-        AgentOptions options)
+        AgentOptions options,
+        ActivityLog? log = null)
     {
         _socket = socket;
         _camera = camera;
         _leaseManager = leaseManager;
         _options = options;
+        _log = log;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        _log?.Write("客户端已连接");
         await using var session = new CaptureSession(
             Guid.NewGuid(),
             _camera,
@@ -95,6 +100,7 @@ public sealed class WebSocketConnection
                         true);
                 }
 
+                _log?.RecordResponse(message?.Type, response);
                 await SendTextAsync(response, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -106,6 +112,16 @@ public sealed class WebSocketConnection
         }
         finally
         {
+            try
+            {
+                await session.DisposeAsync().ConfigureAwait(false);
+                _log?.Write("客户端已断开连接，摄像头资源已释放");
+            }
+            catch
+            {
+                _log?.Write("断开连接时释放摄像头失败");
+                throw;
+            }
             if (_socket.State == WebSocketState.CloseReceived)
             {
                 try
