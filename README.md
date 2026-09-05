@@ -87,6 +87,10 @@ Get-NetTCPConnection -LocalPort 17653 | Select-Object LocalAddress,LocalPort,Sta
 
 ## 业务页面接入
 
+另有独立的 [Vue 3 + Vite 示例](vue3-demo/README.md)，直接复用 `web-sdk/face-capture.js`，
+提供连接、设备选择、实时预览、抓拍、JPEG 下载和操作日志。在 `vue3-demo` 目录执行
+`npm ci`、`npm run dev`，打开 `http://127.0.0.1:5173`。此示例与原 `demo/` 分开维护。
+
 部署 `web-sdk/face-capture.js` 到业务网站，然后使用 ES Module：
 
 ```html

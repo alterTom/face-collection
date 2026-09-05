@@ -24,7 +24,27 @@ dotnet run --project FaceCaptureAgent\FaceCaptureAgent.csproj
 .\scripts\test-installer.ps1
 ```
 
-前两项恢复依赖并验证 .NET 服务；Node 命令验证浏览器 SDK；`dotnet run` 启动本机服务；演示脚本在 `http://127.0.0.1:18080/demo/` 提供页面；发布脚本生成 Windows x64 自包含产物。
+前两项恢复依赖，`dotnet test` 验证 .NET 服务；Node 命令验证浏览器 SDK；`dotnet run` 启动本机服务；演示脚本在 `http://127.0.0.1:18080/demo/` 提供页面；发布脚本生成 Windows x64 自包含产物。
+
+## Vue 3 独立演示
+
+`vue3-demo/` 是独立的 Vue 3 + Vite 应用，直接复用 `web-sdk/face-capture.js`，不复制 SDK，也不修改原有 `demo/` 来实现新演示。源码开发需要保留同级 SDK 和 `FaceCaptureAgent/Assets/`；构建后的 `dist/` 可由静态 HTTP 服务独立提供。不要提交 `node_modules/`、`dist/` 或本地配置 `*.local`，应提交 `package-lock.json`。
+
+使用 Node.js 22.12.0 或更高版本，在仓库根目录执行：
+
+```powershell
+npm --prefix vue3-demo ci
+npm --prefix vue3-demo run dev
+npm --prefix vue3-demo test
+npm --prefix vue3-demo run build
+npm --prefix vue3-demo run preview
+```
+
+开发地址为 `http://127.0.0.1:5173`，构建预览地址为 `http://127.0.0.1:4173`。先启动本机 Agent，默认连接 `ws://127.0.0.1:17653/face`；此 HTTP 本机演示不代表已解决 HTTPS 页面连接本机 WebSocket 的限制。
+
+Vue 组件使用 Composition API 和 `<script setup>`，连接与摄像头状态集中在 `src/capture-controller.js`。保持断开连接后的异步结果失效保护，页面退出时释放连接和预览资源。照片仅保存在内存并由用户主动下载；页面日志最多保留 100 条，不记录 Base64 或直接展示未经筛选的服务端错误内容。
+
+修改 Vue 演示时，除 .NET 与 SDK 测试外，还须运行上述 npm 测试和构建。`tests/fixtures/agent.mjs` 是测试专用 WebSocket 服务，手工运行时监听 17654 端口；`frame.jpg` 是无个人数据的合成测试帧，可作为测试源码提交。不得用真实人脸照片替换测试帧，也不得将模拟服务接入生产流程。页面交互变更需验证桌面与移动端、连接、预览、抓拍、下载、关闭摄像头、断开及错误恢复；模拟测试和浏览器验证不能替代真实设备验证。
 
 ## 编码风格与命名约定
 
