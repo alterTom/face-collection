@@ -1,8 +1,8 @@
-#ifndef AppVersion
+﻿#ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
 
-#define AppName "FaceCaptureAgent"
+#define AppName "刷脸认证"
 #define AppPublisher "alterTom"
 #define AppExecutable "FaceCaptureAgent.exe"
 
@@ -11,14 +11,14 @@ AppId={{8A8BD462-66C4-4DD6-B9C0-E671F92D02C7}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={localappdata}\Programs\{#AppName}
+DefaultDirName={localappdata}\Programs\FaceCaptureAgent
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\installer-output
-OutputBaseFilename=FaceCaptureAgent-Setup-x64
+OutputBaseFilename=刷脸认证
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -42,11 +42,12 @@ Source: "..\scripts\stop-installed-agent.ps1"; DestDir: "{app}"; Flags: ignoreve
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "FaceCaptureAgent"; ValueData: """{app}\{#AppExecutable}"""; Flags: uninsdeletevalue
 
 [Icons]
-Name: "{group}\启动 FaceCaptureAgent"; Filename: "{app}\{#AppExecutable}"; WorkingDir: "{app}"
-Name: "{group}\卸载 FaceCaptureAgent"; Filename: "{uninstallexe}"
+Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExecutable}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExecutable}"
+Name: "{group}\启动 {#AppName}"; Filename: "{app}\{#AppExecutable}"; WorkingDir: "{app}"
+Name: "{group}\卸载 {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\{#AppExecutable}"; WorkingDir: "{app}"; Flags: nowait runhidden; Description: "启动 FaceCaptureAgent"
+Filename: "{app}\{#AppExecutable}"; WorkingDir: "{app}"; Flags: nowait; Description: "启动 {#AppName}"
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\stop-installed-agent.ps1"" -ExecutablePath ""{app}\{#AppExecutable}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopFaceCaptureAgent"

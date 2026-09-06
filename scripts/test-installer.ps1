@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$InstallerPath
 )
@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
-    $InstallerPath = Join-Path $PSScriptRoot '..\installer-output\FaceCaptureAgent-Setup-x64.exe'
+    $InstallerPath = Join-Path $PSScriptRoot '..\installer-output\刷脸认证.exe'
 }
 
 function Assert-Condition([bool]$condition, [string]$message) {
@@ -61,7 +61,7 @@ $existingProduct = Get-ChildItem -LiteralPath $uninstallRoot -ErrorAction Silent
     ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue } |
     Where-Object {
         $displayName = $_.PSObject.Properties['DisplayName']
-        $displayName -and $displayName.Value -eq 'FaceCaptureAgent'
+        $displayName -and $displayName.Value -in @('FaceCaptureAgent', '刷脸认证')
     } |
     Select-Object -First 1
 Assert-Condition ($null -eq $existingProduct) `

@@ -41,7 +41,8 @@ dotnet run --project FaceCaptureAgent\FaceCaptureAgent.csproj -- --config D:\abs
 
 `--config` 不接受相对路径；配置缺失或不合法时程序拒绝启动。
 
-启动后，任务栏通知区域（“显示隐藏的图标”）中会出现 FaceCaptureAgent 图标。
+启动后自动显示“刷脸认证”日志窗口，并在任务栏和系统托盘显示程序图标。
+点击最小化后，窗口及任务栏图标隐藏，只保留系统托盘图标；单击托盘图标可恢复窗口及任务栏图标。
 单击图标或右键选择“查看日志”，可查看带时间的连接、打开/关闭摄像头、
 预览、抓拍和断开连接日志，失败操作显示错误码。日志仅保留本次运行最近
 1,000 条，不写入磁盘，不记录照片、Base64 或请求内容。
@@ -161,9 +162,9 @@ SDK 方法：`connect`、`getSystemInfo`、`listDevices`、`open`、`startPrevie
   -IsccPath 'D:\appInstall\Inno Setup 6\ISCC.exe'
 ```
 
-输出为 `installer-output/FaceCaptureAgent-Setup-x64.exe`。安装包是 Windows x64 当前用户安装程序，不要求管理员权限，也不要求目标电脑预装 .NET。程序默认安装到 `%LocalAppData%\Programs\FaceCaptureAgent`，安装完成后立即在后台启动，并通过 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 在用户登录时自动启动。程序没有控制台窗口，仍只监听 `127.0.0.1:17653`。覆盖安装或升级不会改写已有的 `config.toml`。
+输出为 `installer-output/刷脸认证.exe`。安装包是 Windows x64 当前用户安装程序，不要求管理员权限，也不要求目标电脑预装 .NET。程序默认安装到 `%LocalAppData%\Programs\FaceCaptureAgent`，安装完成后自动在当前用户桌面创建“刷脸认证”快捷方式，可双击启动程序；同时立即启动并显示日志窗口，并通过 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 在用户登录时自动启动。程序没有控制台窗口，仍只监听 `127.0.0.1:17653`。覆盖安装或升级不会改写已有的 `config.toml`。
 
-可在“设置 → 应用 → 已安装的应用”中卸载。安装包会在卸载时终止后台进程并删除登录自启动项。需要做完整安装冒烟验证时执行：
+可在“设置 → 应用 → 已安装的应用”中卸载。安装包会在卸载时终止后台进程，并删除桌面快捷方式和登录自启动项。需要做完整安装冒烟验证时执行：
 
 ```powershell
 .\scripts\test-installer.ps1

@@ -38,9 +38,9 @@ public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifeti
                 ?? throw new InvalidOperationException("Application icon resource is missing.");
             using var appIcon = new Icon(iconStream);
             using var trayIcon = new Icon(appIcon, SystemInformation.SmallIconSize);
-            using var window = new Form
+            using var window = new TrayLogWindow
             {
-                Text = "FaceCaptureAgent — 运行日志",
+                Text = "刷脸认证 — 运行日志",
                 Size = new Size(860, 520),
                 MinimumSize = new Size(540, 300),
                 StartPosition = FormStartPosition.CenterScreen,
@@ -54,18 +54,10 @@ public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifeti
                 AccessibleName = "运行日志"
             };
             window.Controls.Add(text);
-            window.FormClosing += (_, e) =>
-            {
-                if (e.CloseReason == CloseReason.UserClosing)
-                {
-                    e.Cancel = true;
-                    window.Hide();
-                }
-            };
             using var menu = new ContextMenuStrip();
             using var tray = new NotifyIcon
             {
-                Icon = trayIcon, Text = "FaceCaptureAgent", ContextMenuStrip = menu, Visible = true
+                Icon = trayIcon, Text = "刷脸认证", ContextMenuStrip = menu, Visible = true
             };
             long lastSequence = 0;
             void RefreshLog()
@@ -80,9 +72,7 @@ public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifeti
             void ShowLog()
             {
                 RefreshLog();
-                window.Show();
-                window.WindowState = FormWindowState.Normal;
-                window.Activate();
+                window.RestoreFromTray();
             }
             menu.Items.Add("查看日志", null, (_, _) => ShowLog());
             menu.Items.Add("退出", null, (_, _) =>
@@ -97,6 +87,7 @@ public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifeti
             timer.Start();
             _ = window.Handle;
             _window = window;
+            ShowLog();
             _ready.TrySetResult();
             Application.Run();
             tray.Visible = false;

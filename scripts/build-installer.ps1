@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?$')]
     [string]$Version = '1.0.0',
@@ -63,7 +63,7 @@ function Find-Iscc([string]$explicitPath) {
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $publishScript = Join-Path $PSScriptRoot 'publish-win-x64.ps1'
 $installerScript = Join-Path $projectRoot 'installer\FaceCaptureAgent.iss'
-$installerOutput = Join-Path $projectRoot 'installer-output\FaceCaptureAgent-Setup-x64.exe'
+$installerOutput = Join-Path $projectRoot 'installer-output\刷脸认证.exe'
 $compiler = Find-Iscc $IsccPath
 
 Push-Location $projectRoot
