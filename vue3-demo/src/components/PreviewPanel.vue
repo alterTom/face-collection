@@ -1,7 +1,8 @@
 <script setup>
 import { ref } from 'vue';
-defineProps({ cameraOpen: Boolean, busy: String, resolution: String });
-defineEmits(['capture']);
+defineProps({ cameraOpen: Boolean, busy: String, resolution: String,
+  captureMode: { type: String, default: 'manual' }, autoStatus: String, autoComplete: Boolean });
+defineEmits(['capture', 'retake']);
 const image = ref(null);
 defineExpose({ image });
 </script>
@@ -23,8 +24,11 @@ defineExpose({ image });
         <span>连接服务并打开摄像头后开始预览</span>
       </div>
     </div>
-    <p class="preview-tip">请正对摄像头，保持光线均匀。</p>
-    <button class="primary capture-button" :disabled="!cameraOpen || !!busy" @click="$emit('capture')">
+    <p class="preview-tip" role="status">{{ captureMode === 'auto' ? (autoStatus || '打开摄像头后，人脸稳定约 1.5 秒自动拍一张。') : '请正对摄像头，保持光线均匀。' }}</p>
+    <button v-if="captureMode === 'auto'" class="primary capture-button" :disabled="!cameraOpen || !!busy" @click="$emit('retake')">
+      {{ autoComplete ? '重新拍照' : '重新检测' }}
+    </button>
+    <button v-else class="primary capture-button" :disabled="!cameraOpen || !!busy" @click="$emit('capture')">
       {{ busy === '抓拍照片' ? '正在抓拍…' : '抓拍照片' }}
     </button>
   </section>

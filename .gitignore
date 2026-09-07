@@ -5,3 +5,5 @@ installer-output/
 TestResults/
 *.user
 *.suo
+vue3-demo/public/face-detection/wasm/
+vue3-demo/public/face-detection/worker/

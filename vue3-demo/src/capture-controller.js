@@ -1,5 +1,7 @@
 import { computed, reactive, shallowRef } from 'vue';
 import { FaceCaptureClient } from '../../web-sdk/face-capture.js';
+import { createFaceDetector } from './face-detector.js';
+import { createStabilityTracker } from './face-stability.js';
 
 const errorMessages = {
   INVALID_ADDRESS: '请填写本机 WebSocket 地址，例如 ws://127.0.0.1:17653/face。',
@@ -29,10 +31,12 @@ function createSdkClient(url, onClosed) {
   });
 }
 
-export function createCaptureController({ createClient = createSdkClient } = {}) {
+export function createCaptureController({ createClient = createSdkClient, createDetector = createFaceDetector,
+  now = () => performance.now() } = {}) {
   const state = reactive({
     url: 'ws://127.0.0.1:17653/face', connected: false, cameraOpen: false,
     deviceId: '', devices: [], busy: '', error: '', logs: [], resolution: '',
+    captureMode: 'manual', autoStatus: '', autoComplete: false,
   });
   const photo = shallowRef(null);
   const photoUrl = computed(() => photo.value ? `data:image/jpeg;base64,${photo.value.base64}` : '');
@@ -40,6 +44,73 @@ export function createCaptureController({ createClient = createSdkClient } = {})
   let generation = 0;
   let previewElement = null;
   let logId = 0;
+  let stopDetection = () => {};
+
+  function stopAuto() {
+    stopDetection();
+    stopDetection = () => {};
+  }
+
+  async function startAuto() {
+    stopAuto();
+    if (state.captureMode !== 'auto' || !state.cameraOpen) return;
+    state.autoComplete = false;
+    state.autoStatus = '正在加载人脸检测…';
+    const image = previewElement;
+    const tracker = createStabilityTracker();
+    let stopped = false, detecting = false, detector;
+    const stop = () => {
+      stopped = true;
+      image.removeEventListener('load', onFrame);
+      detector?.close();
+    };
+    stopDetection = stop;
+    function failed() {
+      if (stopped) return;
+      stop();
+      state.autoStatus = '人脸检测不可用，请切换手动拍照或点击重新检测';
+      log(state.autoStatus, 'error');
+    }
+    async function onFrame() {
+      if (stopped || detecting) return;
+      if (state.busy || globalThis.document?.hidden) { tracker.reset(); return; }
+      detecting = true;
+      const timestamp = now();
+      try {
+        const faces = await detector.detect(image);
+        if (stopped) return;
+        if (state.busy || globalThis.document?.hidden || now() - timestamp > 750) { tracker.reset(); return; }
+        const result = tracker.update(faces, timestamp);
+        state.autoStatus = result.status;
+        if (result.ready) {
+          stop();
+          await capture();
+        }
+      } catch { failed(); }
+      finally { detecting = false; }
+    }
+    try {
+      detector = createDetector();
+      await detector.ready;
+      if (stopped) return;
+      state.autoStatus = '请面向摄像头';
+      image.addEventListener('load', onFrame);
+    } catch { failed(); }
+  }
+
+  function setCaptureMode(mode) {
+    if (!['manual', 'auto'].includes(mode) || state.busy) return;
+    stopAuto();
+    state.captureMode = mode;
+    state.autoStatus = '';
+    state.autoComplete = false;
+    return startAuto();
+  }
+
+  function retake() {
+    if (state.busy || !state.cameraOpen) return;
+    return startAuto();
+  }
 
   function log(message, tone = 'info') {
     state.logs.unshift({ id: ++logId, time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), message, tone });
@@ -47,6 +118,9 @@ export function createCaptureController({ createClient = createSdkClient } = {})
   }
 
   function clearPreview() {
+    stopAuto();
+    state.autoStatus = '';
+    state.autoComplete = false;
     if (previewElement) {
       previewElement.onload = null;
       previewElement.removeAttribute('src');
@@ -148,6 +222,7 @@ export function createCaptureController({ createClient = createSdkClient } = {})
       state.cameraOpen = true;
       state.resolution = `${result.width} × ${result.height}`;
       log('摄像头已打开，实时预览已开始', 'success');
+      void startAuto();
     }, true);
   }
 
@@ -157,12 +232,18 @@ export function createCaptureController({ createClient = createSdkClient } = {})
       const result = await client.capture();
       if (!active()) return;
       photo.value = result;
+      if (state.captureMode === 'auto') {
+        stopAuto();
+        state.autoComplete = true;
+        state.autoStatus = '拍照完成';
+      }
       log(`抓拍成功：${result.width} × ${result.height}，${(result.size / 1024).toFixed(1)} KB`, 'success');
     }, true);
   }
 
   function close() {
-    if (!state.cameraOpen || !state.connected) return;
+    if (!state.cameraOpen || !state.connected || state.busy) return;
+    stopAuto();
     return run('关闭摄像头', async active => {
       await client.close();
       if (!active()) return;
@@ -171,6 +252,6 @@ export function createCaptureController({ createClient = createSdkClient } = {})
     }, true);
   }
 
-  return { state, photo, photoUrl, connect, refreshDevices, open, capture, close, disconnect,
+  return { state, photo, photoUrl, connect, refreshDevices, open, capture, close, disconnect, setCaptureMode, retake,
     clearLogs: () => { state.logs = []; } };
 }

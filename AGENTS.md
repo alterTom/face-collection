@@ -46,6 +46,29 @@ Vue 组件使用 Composition API 和 `<script setup>`，连接与摄像头状态
 
 修改 Vue 演示时，除 .NET 与 SDK 测试外，还须运行上述 npm 测试和构建。`tests/fixtures/agent.mjs` 是测试专用 WebSocket 服务，手工运行时监听 17654 端口；`frame.jpg` 是无个人数据的合成测试帧，可作为测试源码提交。不得用真实人脸照片替换测试帧，也不得将模拟服务接入生产流程。页面交互变更需验证桌面与移动端、连接、预览、抓拍、下载、关闭摄像头、断开及错误恢复；模拟测试和浏览器验证不能替代真实设备验证。
 
+## 自动拍照：当前实现与后续方案
+
+### 当前实现（2026-09-07）
+
+- 自动拍照目前只在 `vue3-demo/` 实现。页面选择手动或自动模式，默认手动，仅在当前页面生效；Agent、原 `demo/` 和 SDK 协议未增加自动拍照接口。
+- `src/face-detector.worker.js` 使用锁定版本的 MediaPipe 分析现有 JPEG 预览；`src/face-stability.js` 判断单张人脸是否连续稳定约 1.5 秒，满足后调用原有 `capture()` 一次，用户点击“重新拍照”开始下一轮。
+- 无人脸、多人、移动或超过 750 毫秒的帧间隔重置计时。模式切换、关闭摄像头、断开连接和页面离开必须停止检测并使异步结果失效；检测失败允许重试或切回手动。
+- 模型 `public/face-detection/blaze_face_short_range.tflite` 及来源、校验值说明属于源码，应提交。`scripts/prepare-face-assets.mjs` 在开发/构建前复制 WASM 并预打包普通 Worker，以兼容 MediaPipe 的 `importScripts` 加载方式；不要改回开发模式下含 ES import 的普通 Worker。
+- 不提交生成目录 `public/face-detection/wasm/`、`public/face-detection/worker/`。修改 Worker 源码后需重新运行准备脚本或重启 `npm run dev`。发布须包含完整 `dist/face-detection/`，运行时不依赖外部 CDN。
+- 稳定判断不等同于清晰度、正脸角度、身份识别或活体检测。自动化测试与合成画面的浏览器验证不能替代真实人脸、摄像头及目标电脑验收。
+
+### 已记录、下次实施：由前端传参，Agent 自动抓拍
+
+用户于 2026-09-07 确认先记录以下方案，本次不实施迁移。后续用户要求继续时，以此为需求依据：
+
+1. 将人脸检测、稳定判断、单次自动抓拍移至本机 `FaceCaptureAgent.exe` 的采集/会话层；不修改 Windows 摄像头设备驱动。
+2. 前端在打开摄像头时传入模式和稳定时长，例如 `face.open({ deviceId: '0', captureMode: 'auto', stableDurationMs: 1500 })`。`captureMode` 支持 `manual` / `auto`，未传时默认手动，兼容既有页面；Agent 必须校验参数。
+3. 参数仅影响当前 WebSocket 会话，不修改磁盘 `config.toml`，不影响其他连接。手动模式等待显式 `capture()`；自动模式在单张人脸稳定后抓拍一次，之后停止本轮等待重新启动。
+4. 扩展 WebSocket 协议和 SDK，让 Agent 主动推送检测状态、自动抓拍结果和错误；前端订阅并展示。主动事件须与现有按 `requestId` 匹配的命令响应区分，保持原有接口兼容。
+5. 支持摄像头打开后切换模式，以及“重新拍照”启动下一轮。相关命令、事件名称和参数范围仍需在实施时确定；以上 `open()` 参数目前尚未实现，不得当作可用接口发布。
+6. 迁移后前端负责模式选择、状态和照片展示，移除 Demo 的重复检测和自动触发，确保 Agent 与前端不会同时抓拍。关闭摄像头、断线、程序退出、模式切换和设备故障时取消任务、释放资源，防止旧结果进入新会话。
+7. 实施时补充本机检测模型与运行库打包、协议/SDK/会话成功及异常路径测试、真实设备验收，并重新发布 Agent 安装包。模型选择、目标平台性能和具体协议细节留待下次实现时验证。
+
 ## 编码风格与命名约定
 
 C# 使用 4 空格缩进、文件作用域命名空间和已启用的可空引用类型。公开类型及成员使用 `PascalCase`，局部变量和参数使用 `camelCase`，异步方法以 `Async` 结尾。一个文件聚焦一个主要职责，并保持协议错误码稳定。JavaScript 使用 ES Module、2 空格缩进、分号和 `camelCase`；不要破坏 `FaceCaptureClient` 的既有公开接口。

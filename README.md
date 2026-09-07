@@ -92,6 +92,8 @@ Get-NetTCPConnection -LocalPort 17653 | Select-Object LocalAddress,LocalPort,Sta
 提供连接、设备选择、实时预览、抓拍、JPEG 下载和操作日志。在 `vue3-demo` 目录执行
 `npm ci`、`npm run dev`，打开 `http://127.0.0.1:5173`。此示例与原 `demo/` 分开维护。
 
+Vue 示例支持“手动 / 自动拍照”配置：自动模式在浏览器中检测到单张人脸稳定约 1.5 秒后抓拍一次，点击“重新拍照”开始下一轮。检测模型及 WASM 随前端部署，Agent 和 SDK 抓拍协议不变；具体规则与部署说明见 Vue 示例 README。
+
 部署 `web-sdk/face-capture.js` 到业务网站，然后使用 ES Module：
 
 ```html

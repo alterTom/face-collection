@@ -31,10 +31,17 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="state.error" class="error-message" role="alert">{{ state.error }}</div>
     <div class="workspace">
-      <PreviewPanel ref="preview" :camera-open="state.cameraOpen" :busy="state.busy" :resolution="state.resolution" @capture="capture.capture" />
+      <PreviewPanel ref="preview" :camera-open="state.cameraOpen" :busy="state.busy" :resolution="state.resolution"
+        :capture-mode="state.captureMode" :auto-status="state.autoStatus" :auto-complete="state.autoComplete"
+        @capture="capture.capture" @retake="capture.retake" />
       <aside class="panel control-panel" aria-label="采集控制及结果">
         <section aria-labelledby="control-heading">
           <h2 id="control-heading">采集控制</h2>
+          <label for="capture-mode">拍照模式</label>
+          <select id="capture-mode" :value="state.captureMode" :disabled="!!state.busy" @change="capture.setCaptureMode($event.target.value)">
+            <option value="manual">手动拍照</option>
+            <option value="auto">自动拍照（人脸稳定后拍一张）</option>
+          </select>
           <label for="service-url">服务地址</label>
           <input id="service-url" v-model="state.url" type="url" spellcheck="false" :disabled="state.connected || !!state.busy" />
           <div class="button-row connection-buttons">
