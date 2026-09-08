@@ -2,6 +2,7 @@ import { WebSocketServer } from 'ws';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 // Test-only protocol peer. The frontend always uses the real SDK and WebSocket API.
 export async function startTestAgent(port = 0) {
@@ -11,9 +12,26 @@ export async function startTestAgent(port = 0) {
   await new Promise((done, reject) => { server.once('listening', done); server.once('error', reject); });
   server.on('connection', (socket, request) => {
     let opened = false;
-    let timer;
+    let timer, autoTimer, roundId, captureMode = 'manual', stableDurationMs = 1500;
+    const photo = () => ({ width: 640, height: 480, size: jpeg.length, mimeType: 'image/jpeg', base64: jpeg.toString('base64'), capturedAt: new Date().toISOString() });
+    const event = (type, data) => socket.send(JSON.stringify({ type, event: true, data: { roundId, ...data } }));
+    const beginRound = () => {
+      clearTimeout(autoTimer);
+      roundId = randomUUID();
+    };
+    // Synthetic protocol events test the UI, not face detection.
+    const startAuto = () => {
+      if (captureMode !== 'auto') return;
+      event('auto.status', { status: 'stabilizing' });
+      autoTimer = setTimeout(() => {
+        if (!opened || socket.readyState !== 1) return;
+        event('auto.capture', photo());
+        event('auto.status', { status: 'complete' });
+      }, 40);
+    };
+    const configuration = () => ({ roundId, captureMode, stableDurationMs });
     const stop = () => { clearInterval(timer); timer = null; };
-    socket.on('close', stop);
+    socket.on('close', () => { stop(); clearTimeout(autoTimer); });
     socket.on('message', raw => {
       const message = JSON.parse(raw.toString());
       const send = (type, data) => socket.send(JSON.stringify({ type, requestId: message.requestId, data }));
@@ -24,7 +42,20 @@ export async function startTestAgent(port = 0) {
         case 'camera.open':
           if (request.url === '/busy') { error('CAMERA_BUSY'); break; }
           opened = true;
-          send('camera.open.result', { width: 640, height: 480, fps: 15 });
+          captureMode = message.captureMode ?? 'manual';
+          stableDurationMs = message.stableDurationMs ?? 1500;
+          beginRound();
+          send('camera.open.result', { width: 640, height: 480, fps: 15, ...configuration() });
+          startAuto();
+          break;
+        case 'camera.setCaptureMode':
+        case 'capture.rearm':
+          if (!opened) { error('INVALID_STATE'); break; }
+          captureMode = message.captureMode ?? captureMode;
+          stableDurationMs = message.stableDurationMs ?? stableDurationMs;
+          beginRound();
+          send(`${message.type}.result`, configuration());
+          startAuto();
           break;
         case 'preview.start':
           if (!opened) { error('INVALID_STATE'); break; }
@@ -38,7 +69,7 @@ export async function startTestAgent(port = 0) {
           if (!opened) { error('INVALID_STATE'); break; }
           send('capture.result', { width: 640, height: 480, size: jpeg.length, mimeType: 'image/jpeg', base64: jpeg.toString('base64'), capturedAt: new Date().toISOString() });
           break;
-        case 'camera.close': opened = false; stop(); send('camera.close.result', {}); break;
+        case 'camera.close': opened = false; clearTimeout(autoTimer); stop(); send('camera.close.result', {}); break;
         default: error('INVALID_MESSAGE');
       }
     });

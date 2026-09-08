@@ -1,11 +1,12 @@
 using System.Text.Json;
+using FaceCaptureAgent.AutoCapture;
 using FaceCaptureAgent.Camera;
 using FaceCaptureAgent.Configuration;
 using FaceCaptureAgent.Protocol;
 
 namespace FaceCaptureAgent.Sessions;
 
-public sealed class CaptureSession : IAsyncDisposable
+public sealed partial class CaptureSession : IAsyncDisposable
 {
     private readonly Guid _ownerId;
     private readonly ICameraService _camera;
@@ -25,13 +26,17 @@ public sealed class CaptureSession : IAsyncDisposable
         ICameraService camera,
         CameraLeaseManager leaseManager,
         AgentOptions options,
-        Func<ReadOnlyMemory<byte>, CancellationToken, Task> binarySender)
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task> binarySender,
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task>? eventSender = null,
+        Func<IFaceDetector>? detectorFactory = null)
     {
         _ownerId = ownerId;
         _camera = camera;
         _leaseManager = leaseManager;
         _options = options;
         _binarySender = binarySender;
+        _eventSender = eventSender ?? ((_, _) => Task.CompletedTask);
+        _detectorFactory = detectorFactory ?? (() => new YuNetFaceDetector());
     }
 
     public SessionState State { get; private set; } = SessionState.Connected;
@@ -40,6 +45,18 @@ public sealed class CaptureSession : IAsyncDisposable
         ClientMessage message,
         CancellationToken cancellationToken)
     {
+        // The connection dispatches commands serially. Cancel before waiting for a
+        // detector that currently owns the gate; validate first to preserve a valid round.
+        if (State is SessionState.CameraOpen or SessionState.Previewing)
+        {
+            if (message.Type == "camera.setCaptureMode")
+            {
+                _ = AutoCaptureOptions.Parse(message.Payload, _autoOptions);
+                CancelAutoCapture();
+            }
+            else if (message.Type == "camera.close" || message.Type == "capture.rearm" && _autoOptions.CaptureMode == "auto")
+                CancelAutoCapture();
+        }
         await _commandGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -55,6 +72,8 @@ public sealed class CaptureSession : IAsyncDisposable
                     "system.info" => SystemInfo(message),
                     "device.list" => await ListDevicesAsync(message, cancellationToken).ConfigureAwait(false),
                     "camera.open" => await OpenCameraAsync(message, cancellationToken).ConfigureAwait(false),
+                    "camera.setCaptureMode" => await SetCaptureModeAsync(message).ConfigureAwait(false),
+                    "capture.rearm" => await RearmAsync(message).ConfigureAwait(false),
                     "preview.start" => StartPreview(message),
                     "preview.stop" => await StopPreviewCommandAsync(message).ConfigureAwait(false),
                     "capture" => await CaptureAsync(message, cancellationToken).ConfigureAwait(false),
@@ -67,6 +86,7 @@ public sealed class CaptureSession : IAsyncDisposable
             {
                 if (_cameraLease is not null)
                 {
+                    await StopAutoCaptureAsync().ConfigureAwait(false);
                     await StopPreviewAsync().ConfigureAwait(false);
                     await ReleaseCameraAfterFailureAsync().ConfigureAwait(false);
                     State = SessionState.Connected;
@@ -94,7 +114,7 @@ public sealed class CaptureSession : IAsyncDisposable
         ResponseEnvelope.Success(
             "system.info.result",
             message.RequestId,
-            new { agentVersion = "1.0.0", protocolVersion = "1.0", platform = "win-x64" });
+            new { agentVersion = "1.1.0", protocolVersion = "1.0", platform = "win-x64", capabilities = new[] { "auto-capture" } });
 
     private async Task<ReadOnlyMemory<byte>> ListDevicesAsync(
         ClientMessage message,
@@ -113,6 +133,7 @@ public sealed class CaptureSession : IAsyncDisposable
             return Error(message.RequestId, ErrorCodes.InvalidState, "The camera is already open.");
         }
 
+        var autoOptions = AutoCaptureOptions.Parse(message.Payload);
         var request = new CameraOpenRequest(
             OptionalString(message.Payload, "deviceId") ?? _options.CameraIndex.ToString(),
             OptionalPositiveInt(message.Payload, "width", _options.CaptureWidth),
@@ -131,7 +152,9 @@ public sealed class CaptureSession : IAsyncDisposable
             timeout.CancelAfter(TimeSpan.FromSeconds(_options.CameraTimeoutSeconds));
             var result = await _camera.OpenAsync(request, timeout.Token).ConfigureAwait(false);
             State = SessionState.CameraOpen;
-            return ResponseEnvelope.Success("camera.open.result", message.RequestId, result);
+            PrepareAutoRound(autoOptions);
+            return ResponseEnvelope.Success("camera.open.result", message.RequestId,
+                new { result.Width, result.Height, result.Fps, _autoOptions.CaptureMode, _autoOptions.StableDurationMs, roundId = _roundId });
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -186,6 +209,9 @@ public sealed class CaptureSession : IAsyncDisposable
             return Error(message.RequestId, ErrorCodes.InvalidState, "Capture requires an open camera.");
         }
 
+        if (_autoOptions.CaptureMode == "auto")
+            return Error(message.RequestId, ErrorCodes.InvalidState, "Switch to manual mode before explicit capture.");
+
         var precedingState = State;
         State = SessionState.Capturing;
         try
@@ -234,6 +260,7 @@ public sealed class CaptureSession : IAsyncDisposable
             return Error(message.RequestId, ErrorCodes.InvalidState, "The camera is not open.");
         }
 
+        await StopAutoCaptureAsync().ConfigureAwait(false);
         await StopPreviewAsync().ConfigureAwait(false);
         await CloseOwnedCameraAsync(CancellationToken.None).ConfigureAwait(false);
         State = SessionState.Connected;
@@ -253,6 +280,24 @@ public sealed class CaptureSession : IAsyncDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+        catch (Exception exception)
+        {
+            CancelAutoCapture();
+            try
+            {
+                await _commandGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await StopAutoCaptureAsync().ConfigureAwait(false);
+                    await CloseCameraAfterAutoFailureAsync().ConfigureAwait(false);
+                    await SendAutoErrorAsync(_roundId,
+                        exception is CameraException cameraError ? cameraError.Code : ErrorCodes.CameraDisconnected,
+                        true, cancellationToken).ConfigureAwait(false);
+                }
+                finally { _commandGate.Release(); }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         }
     }
 
@@ -352,6 +397,8 @@ public sealed class CaptureSession : IAsyncDisposable
 
     private async Task DisposeCoreAsync()
     {
+        _lifetimeCancellation.Cancel();
+        CancelAutoCapture();
         await _commandGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -362,6 +409,7 @@ public sealed class CaptureSession : IAsyncDisposable
 
             try
             {
+                await StopAutoCaptureAsync().ConfigureAwait(false);
                 await StopPreviewAsync().ConfigureAwait(false);
             }
             catch
@@ -377,6 +425,7 @@ public sealed class CaptureSession : IAsyncDisposable
             {
                 State = SessionState.Closed;
                 await _camera.DisposeAsync().ConfigureAwait(false);
+                _lifetimeCancellation.Dispose();
             }
         }
         finally

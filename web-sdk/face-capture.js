@@ -22,6 +22,9 @@ export class FaceCaptureClient {
     this._heartbeatIntervalMs = options.heartbeatIntervalMs ?? 15_000;
     this._pending = new Map();
     this._counter = 0;
+    this._listeners = new Map();
+    this._roundId = null;
+    this._roundVersion = 0;
     this._socket = null;
     this._connectPromise = null;
     this._heartbeatTimer = null;
@@ -56,12 +59,44 @@ export class FaceCaptureClient {
   }
 
   async open(options = {}) {
-    return this._sendCommand('camera.open', {
+    return this._sendRoundCommand('camera.open', {
       deviceId: options.deviceId,
       width: options.width,
       height: options.height,
       fps: options.fps,
+      captureMode: options.captureMode,
+      stableDurationMs: options.stableDurationMs,
     });
+  }
+
+  on(eventType, callback) {
+    if (!['auto.status', 'auto.capture', 'auto.error'].includes(eventType) || typeof callback !== 'function') {
+      throw new TypeError('A supported auto event and callback are required.');
+    }
+    const listeners = this._listeners.get(eventType) ?? new Set();
+    this._listeners.set(eventType, listeners);
+    listeners.add(callback);
+    return () => listeners.delete(callback);
+  }
+
+  setCaptureMode(options = {}) {
+    return this._sendRoundCommand('camera.setCaptureMode', {
+      captureMode: options.captureMode, stableDurationMs: options.stableDurationMs,
+    });
+  }
+
+  rearm() {
+    return this._sendRoundCommand('capture.rearm');
+  }
+
+  _invalidateRound() {
+    this._roundId = null;
+    this._roundVersion += 1;
+  }
+
+  _sendRoundCommand(type, fields = {}) {
+    this._invalidateRound();
+    return this._sendCommand(type, fields, { roundVersion: this._roundVersion });
   }
 
   async startPreview(imageElement, options = {}) {
@@ -89,12 +124,14 @@ export class FaceCaptureClient {
   }
 
   async close() {
+    this._invalidateRound();
     const data = await this._sendCommand('camera.close');
     this._clearPreview();
     return data;
   }
 
   disconnect() {
+    this._invalidateRound();
     const socket = this._socket;
     this._socket = null;
     this._stopHeartbeat();
@@ -162,7 +199,9 @@ export class FaceCaptureClient {
         clearTimeout(timer);
         resolve();
       };
-      socket.onmessage = event => this._handleMessage(event.data);
+      socket.onmessage = event => {
+        if (this._socket === socket) this._handleMessage(event.data);
+      };
       socket.onerror = () => {
         if (settled) return;
         settled = true;
@@ -222,7 +261,7 @@ export class FaceCaptureClient {
         }
       }, this._commandTimeoutMs);
 
-      this._pending.set(requestId, { resolve, reject, timer });
+      this._pending.set(requestId, { resolve, reject, timer, roundVersion: options.roundVersion });
       try {
         socket.send(JSON.stringify(message));
       } catch (error) {
@@ -246,6 +285,14 @@ export class FaceCaptureClient {
       return;
     }
 
+    if (!message || typeof message !== 'object') return;
+    if (message.event === true || message.type?.startsWith('auto.')) {
+      if (message.event !== true || !this._roundId || message.data?.roundId !== this._roundId) return;
+      for (const callback of [...(this._listeners.get(message.type) ?? [])]) {
+        try { callback(message.data); } catch { /* Consumer errors cannot break protocol processing. */ }
+      }
+      return;
+    }
     if (typeof message.requestId !== 'string') return;
     const pending = this._pending.get(message.requestId);
     if (!pending) return;
@@ -261,6 +308,9 @@ export class FaceCaptureClient {
       return;
     }
 
+    if (pending.roundVersion !== undefined && pending.roundVersion === this._roundVersion) {
+      this._roundId = typeof message.data?.roundId === 'string' ? message.data.roundId : null;
+    }
     pending.resolve(message.data ?? {});
   }
 
@@ -317,6 +367,7 @@ export class FaceCaptureClient {
   }
 
   _handleSocketClosed(socket, reason) {
+    this._invalidateRound();
     if (this._socket === socket) this._socket = null;
     this._stopHeartbeat();
     this._clearPreview();

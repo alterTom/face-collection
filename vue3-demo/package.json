@@ -4,15 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node scripts/prepare-face-assets.mjs",
-    "prebuild": "node scripts/prepare-face-assets.mjs",
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "0.10.32",
     "vue": "3.5.42"
   },
   "devDependencies": {

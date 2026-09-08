@@ -18,6 +18,24 @@ namespace FaceCaptureAgent.Tests.Hosting;
 public sealed class WebSocketHostTests
 {
     [Fact]
+    public async Task AutoOpen_RespondsBeforeRealModelEvents_WithoutPreview()
+    {
+        using var blank = new OpenCvSharp.Mat(320, 320, OpenCvSharp.MatType.CV_8UC3, OpenCvSharp.Scalar.All(0));
+        OpenCvSharp.Cv2.ImEncode(".jpg", blank, out var jpeg);
+        await using var factory = CreateFactory(new FakeCameraService { NextFrame = new(jpeg, 320, 320, DateTimeOffset.Now) });
+        using var socket = await ConnectAsync(factory);
+        await SendAsync(socket, """{"type":"camera.open","requestId":"auto-open","captureMode":"auto","stableDurationMs":500}""");
+        var opened = await ReceiveJsonAsync(socket).WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.Equal("camera.open.result", opened.GetProperty("type").GetString());
+        var status = await ReceiveJsonAsync(socket).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(status.GetProperty("event").GetBoolean());
+        Assert.False(status.TryGetProperty("requestId", out _));
+        Assert.Equal("auto.status", status.GetProperty("type").GetString());
+        Assert.Equal("no-face", status.GetProperty("data").GetProperty("status").GetString());
+        Assert.Equal(opened.GetProperty("data").GetProperty("roundId").GetString(), status.GetProperty("data").GetProperty("roundId").GetString());
+        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", TestContext.Current.CancellationToken);
+    }
+    [Fact]
     public async Task CaptureFlow_LogsSuccessFailureAndDisconnectWithoutPhotoData()
     {
         await using var factory = CreateFactory(new FakeCameraService());

@@ -11,6 +11,8 @@ public static class ProtocolParser
         "system.info",
         "device.list",
         "camera.open",
+        "camera.setCaptureMode",
+        "capture.rearm",
         "preview.start",
         "preview.stop",
         "capture",

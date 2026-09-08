@@ -176,3 +176,74 @@ test('disconnect rejects all pending commands and closes the socket', async () =
   await assert.rejects(devices, error => error.code === 'DISCONNECTED');
   assert.equal(socket.closeCalls.length, 1);
 });
+
+test('auto options, subscriptions and synchronous round binding fence old events', async () => {
+  const { client, socket } = await connectedClient();
+  const seen = [];
+  const unsubscribe = client.on('auto.status', data => seen.push(data.status));
+  const opened = client.open({ captureMode: 'auto', stableDurationMs: 2000 });
+  assert.equal(socket.lastRequest.captureMode, 'auto');
+  assert.equal(socket.lastRequest.stableDurationMs, 2000);
+  socket.emitJson({ type: 'camera.open.result', requestId: socket.lastRequest.requestId, data: { roundId: 'one' } });
+  socket.emitJson({ type: 'auto.status', event: true, data: { roundId: 'one', status: 'stabilizing' } });
+  await opened;
+  const rearmed = client.rearm();
+  const requestId = socket.lastRequest.requestId;
+  socket.emitJson({ type: 'auto.status', event: true, requestId, data: { roundId: 'one', status: 'complete' } });
+  assert.equal(client._pending.size, 1);
+  socket.emitJson({ type: 'capture.rearm.result', requestId, data: { roundId: 'two' } });
+  await rearmed;
+  socket.emitJson({ type: 'auto.status', event: true, data: { roundId: 'one', status: 'complete' } });
+  socket.emitJson({ type: 'auto.status', event: true, data: { roundId: 'two', status: 'no-face' } });
+  unsubscribe();
+  socket.emitJson({ type: 'auto.status', event: true, data: { roundId: 'two', status: 'complete' } });
+  assert.deepEqual(seen, ['stabilizing', 'no-face']);
+  client.disconnect();
+});
+
+test('latest control intent wins even when control responses arrive out of order', async () => {
+  const { client, socket } = await connectedClient();
+  const seen = [];
+  client.on('auto.capture', data => seen.push(data.roundId));
+  const first = client.setCaptureMode({ captureMode: 'auto' });
+  const oldRequest = socket.lastRequest;
+  const second = client.setCaptureMode({ captureMode: 'manual' });
+  socket.emitJson({ type: 'camera.setCaptureMode.result', requestId: socket.lastRequest.requestId, data: { roundId: 'new' } });
+  socket.emitJson({ type: 'camera.setCaptureMode.result', requestId: oldRequest.requestId, data: { roundId: 'old' } });
+  await Promise.all([first, second]);
+  socket.emitJson({ type: 'auto.capture', event: true, data: { roundId: 'old' } });
+  assert.deepEqual(seen, []);
+  client.disconnect();
+});
+
+test('obsolete socket cannot deliver events after reconnect', async () => {
+  const oldSocket = new FakeWebSocket(), newSocket = new FakeWebSocket();
+  let next = oldSocket;
+  const { client } = await connectedClient({ webSocketFactory: () => { queueMicrotask(() => next.emitOpen()); return next; } });
+  client.disconnect();
+  next = newSocket;
+  await client.connect();
+  const seen = [];
+  client.on('auto.capture', data => seen.push(data));
+  const opened = client.open();
+  newSocket.emitJson({ type: 'camera.open.result', requestId: newSocket.lastRequest.requestId, data: { roundId: 'current' } });
+  await opened;
+  oldSocket.emitJson({ type: 'auto.capture', event: true, data: { roundId: 'current' } });
+  assert.deepEqual(seen, []);
+  client.disconnect();
+});
+
+test('close invalidates active round immediately while awaiting its response', async () => {
+  const { client, socket } = await connectedClient();
+  const seen = [];
+  client.on('auto.capture', data => seen.push(data));
+  const opened = client.open();
+  socket.emitJson({ type: 'camera.open.result', requestId: socket.lastRequest.requestId, data: { roundId: 'one' } });
+  await opened;
+  const closed = client.close();
+  socket.emitJson({ type: 'auto.capture', event: true, data: { roundId: 'one' } });
+  socket.emitJson({ type: 'camera.close.result', requestId: socket.lastRequest.requestId, data: {} });
+  await closed;
+  assert.deepEqual(seen, []);
+  client.disconnect();
+});

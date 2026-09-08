@@ -40,3 +40,21 @@ test('real SDK camera-busy response produces a safe retryable UI state', async (
     assert.equal(c.state.busy, '');
   } finally { c.disconnect(false); await agent.close(); }
 });
+
+test('Agent auto events work without preview and rearm creates another round', async () => {
+  const { FaceCaptureClient } = await import('../../web-sdk/face-capture.js');
+  const agent = await startTestAgent();
+  const client = new FaceCaptureClient({ url: agent.url, retryDelays: [] });
+  const photos = [];
+  client.on('auto.capture', data => photos.push(data));
+  try {
+    await client.connect();
+    await client.open({ deviceId: '0', captureMode: 'auto', stableDurationMs: 500 });
+    for (let i = 0; i < 50 && photos.length < 1; i++) await delay(10);
+    assert.equal(photos.length, 1);
+    await client.rearm();
+    for (let i = 0; i < 50 && photos.length < 2; i++) await delay(10);
+    assert.equal(photos.length, 2);
+    assert.notEqual(photos[0].roundId, photos[1].roundId);
+  } finally { client.disconnect(); await agent.close(); }
+});

@@ -39,7 +39,8 @@ public sealed class WebSocketConnection
             _camera,
             _leaseManager,
             _options,
-            SendBinaryAsync);
+            SendBinaryAsync,
+            SendTextAsync);
 
         try
         {
@@ -102,6 +103,8 @@ public sealed class WebSocketConnection
 
                 _log?.RecordResponse(message?.Type, response);
                 await SendTextAsync(response, cancellationToken).ConfigureAwait(false);
+                // Establish the round in the client before emitting any of its events.
+                session.StartPendingAutoCapture();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

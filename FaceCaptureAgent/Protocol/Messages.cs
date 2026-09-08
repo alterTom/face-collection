@@ -20,6 +20,9 @@ public sealed class ProtocolException : Exception
 
 public static class ResponseEnvelope
 {
+    public static byte[] Event(string type, object data) =>
+        JsonSerializer.SerializeToUtf8Bytes(new { type, @event = true, data }, SerializerOptions);
+
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     public static byte[] Success(string type, string requestId, object data) =>

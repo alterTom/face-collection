@@ -92,7 +92,7 @@ Get-NetTCPConnection -LocalPort 17653 | Select-Object LocalAddress,LocalPort,Sta
 提供连接、设备选择、实时预览、抓拍、JPEG 下载和操作日志。在 `vue3-demo` 目录执行
 `npm ci`、`npm run dev`，打开 `http://127.0.0.1:5173`。此示例与原 `demo/` 分开维护。
 
-Vue 示例支持“手动 / 自动拍照”配置：自动模式在浏览器中检测到单张人脸稳定约 1.5 秒后抓拍一次，点击“重新拍照”开始下一轮。检测模型及 WASM 随前端部署，Agent 和 SDK 抓拍协议不变；具体规则与部署说明见 Vue 示例 README。
+Vue 示例支持“手动 / 自动拍照”配置：自动模式由本机 Agent 检测单张人脸稳定约 1.5 秒后抓拍一次，点击“重新拍照”开始下一轮。模型随 Agent 安装包部署，前端只展示状态和照片；具体规则与部署说明见 Vue 示例 README。
 
 部署 `web-sdk/face-capture.js` 到业务网站，然后使用 ES Module：
 
@@ -122,7 +122,35 @@ Vue 示例支持“手动 / 自动拍照”配置：自动模式在浏览器中�
 
 上述 API 路径和字段只是接线示例，实际应替换为现有 1:1 比对接口。API 密钥不得写入浏览器 SDK。若远程接口仍为 HTTP，人脸照片在网络传输中不具备 HTTPS 的机密性和完整性保护。
 
-SDK 方法：`connect`、`getSystemInfo`、`listDevices`、`open`、`startPreview`、`stopPreview`、`capture`、`close`、`disconnect`。页面卸载时应调用 `disconnect()`；服务端也会在 WebSocket 断开时释放摄像头。
+SDK 方法：`connect`、`getSystemInfo`、`listDevices`、`open`、`startPreview`、`stopPreview`、`capture`、`setCaptureMode`、`rearm`、`on`、`close`、`disconnect`。页面卸载时应调用 `disconnect()`；服务端也会在 WebSocket 断开时释放摄像头。
+
+### 本机自动拍照（Agent 1.1.0）
+
+```js
+const face = new FaceCaptureClient();
+const unsubscribe = face.on('auto.capture', photo => {
+  document.querySelector('#face-photo').src = `data:image/jpeg;base64,${photo.base64}`;
+});
+face.on('auto.status', ({ status }) => {
+  // no-face / multiple-faces / stabilizing / complete，按业务需要显示提示。
+});
+face.on('auto.error', ({ code, cameraClosed }) => {
+  // cameraClosed 为 true 时清理预览并提示重新打开摄像头。
+  // 否则可重新检测或切回手动；不要记录照片或原始响应。
+});
+await face.connect();
+await face.open({ deviceId: '0', captureMode: 'auto', stableDurationMs: 1500 });
+// 可选：await face.startPreview(document.querySelector('#face-preview'));
+// 用户点击“重新拍照”时：await face.rearm();
+// 用户切回手动时：await face.setCaptureMode({ captureMode: 'manual' });
+// 页面离开时：unsubscribe(); face.disconnect();
+```
+
+参数仅影响当前 WebSocket 会话，不修改磁盘配置。省略模式时默认 `manual`；`stableDurationMs` 为 500–10000 的整数，默认 1500。自动模式只推送一次照片，之后等待 `rearm()`；自动模式下显式 `capture()` 返回 `INVALID_STATE`，切回手动后可调用。人脸移动、多人、无人脸和超过 750ms 的检测间隔都会重置计时；这是位置稳定判断，不是活体或身份校验。
+
+新增命令 `camera.setCaptureMode`、`capture.rearm`。打开、切换和重启响应均包含 `roundId`；主动事件格式为 `{ type, event: true, data: { roundId, ... } }`，不含 `requestId`。SDK 只分发当前轮事件，控制请求开始和断线时立即作废旧轮。`system.info` 的 `capabilities` 包含 `auto-capture`；旧 Agent 可继续手动抓拍，但使用自动功能需升级 Agent。
+
+模型采用 [OpenCV Zoo YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)，模型、许可证和校验值在 `FaceCaptureAgent/Models/`。该目录随发布和安装包离线交付，运行时无需外部 CDN。Windows x64 以外的平台仍需单独验证。
 
 ## 错误排查
 
@@ -131,6 +159,7 @@ SDK 方法：`connect`、`getSystemInfo`、`listDevices`、`open`、`startPrevie
 - `CAMERA_DISCONNECTED`：摄像头被拔出或未返回有效图像。
 - `CAPTURE_TIMEOUT`：在配置时间内没有取得图像。
 - `IMAGE_TOO_LARGE`：JPEG 超出 `max_image_bytes`。
+- `FACE_DETECTION_FAILED`：本机检测模型缺失或推理失败；检查安装目录 Models，重试或切回手动。
 - 无法连接：先确认 `FaceCaptureAgent` 正在运行，再检查端口 17653。
 
 同一时刻只有一个 WebSocket 会话可以拥有摄像头。刷新或关闭页面后，服务端通常会立即释放设备；若异常页面未断开，可关闭对应浏览器标签或重启本机程序。
@@ -147,7 +176,7 @@ SDK 方法：`connect`、`getSystemInfo`、`listDevices`、`open`、`startPrevie
 .\publish\windows-x64\FaceCaptureAgent.exe
 ```
 
-发布目录中的 `config.toml` 必须和可执行文件放在一起。程序不会存储预览帧、JPEG 或 Base64；请勿在业务页面日志中打印完整 Base64。
+发布目录中的 `config.toml` 和 `Models/` 必须与可执行文件一起交付。程序不会存储预览帧、JPEG 或 Base64；请勿在业务页面日志中打印完整 Base64。
 
 ## 构建后台自启动安装包
 
@@ -160,7 +189,7 @@ SDK 方法：`connect`、`getSystemInfo`、`listDevices`、`open`、`startPrevie
 也可以指定版本或编译器路径：
 
 ```powershell
-.\scripts\build-installer.ps1 -Version 1.0.0 `
+.\scripts\build-installer.ps1 -Version 1.1.0 `
   -IsccPath 'D:\appInstall\Inno Setup 6\ISCC.exe'
 ```
 
