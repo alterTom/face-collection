@@ -3,6 +3,7 @@ using FaceCaptureAgent.Protocol;
 
 namespace FaceCaptureAgent.AutoCapture;
 
+/// <summary>会话级拍照参数；切换模式时未提供的字段沿用当前值，首次打开默认手动。</summary>
 public sealed record AutoCaptureOptions(string CaptureMode = "manual", int StableDurationMs = 1500)
 {
     public static AutoCaptureOptions Parse(JsonElement payload, AutoCaptureOptions? defaults = null)

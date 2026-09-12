@@ -2,6 +2,7 @@ using System.Text.Json;
 
 namespace FaceCaptureAgent.Diagnostics;
 
+/// <summary>线程安全的内存日志，最多保留最近 1000 条，供托盘窗口读取快照。</summary>
 public sealed class ActivityLog
 {
     private readonly object _gate = new();
@@ -22,6 +23,7 @@ public sealed class ActivityLog
         lock (_gate) return _entries.ToArray();
     }
 
+    // 只提取操作结果和错误码，避免将抓拍响应中的照片或 Base64 写入日志。
     public void RecordResponse(string? command, ReadOnlyMemory<byte> response)
     {
         var action = command switch

@@ -5,6 +5,7 @@ using FaceCaptureAgent.Sessions;
 using FaceCaptureAgent.Diagnostics;
 using FaceCaptureAgent.Desktop;
 
+// 启动顺序：加载并校验配置 → 注册服务 → 映射 HTTP/WebSocket 入口 → 启动托盘和监听。
 var configPath = ResolveConfigPath(args);
 var agentOptions = TomlOptionsLoader.Load(configPath);
 
@@ -14,6 +15,7 @@ builder.WebHost.ConfigureKestrel(server =>
 builder.Services.AddSingleton(agentOptions);
 builder.Services.AddSingleton<ActivityLog>();
 builder.Services.AddHostedService<TrayService>();
+// 租约在所有连接间共享；摄像头服务按连接创建，由会话负责释放。
 builder.Services.AddSingleton<CameraLeaseManager>();
 builder.Services.AddTransient<ICameraService, OpenCvCameraService>();
 
@@ -50,6 +52,7 @@ app.Map("/face", async context =>
         context.RequestServices.GetRequiredService<CameraLeaseManager>(),
         agentOptions,
         context.RequestServices.GetRequiredService<ActivityLog>());
+    // 浏览器断开或托盘退出都必须结束会话，确保摄像头不再被占用。
     using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
         context.RequestAborted, app.Lifetime.ApplicationStopping);
     await connection.RunAsync(cancellation.Token);

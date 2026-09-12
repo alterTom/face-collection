@@ -6,6 +6,7 @@ using System.Windows.Forms;
 
 namespace FaceCaptureAgent.Desktop;
 
+/// <summary>在独立 STA 线程运行托盘和日志窗口，通过宿主生命周期协调启动与退出。</summary>
 public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifetime, AgentOptions options) : IHostedService
 {
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -24,6 +25,7 @@ public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifeti
     {
         if (_window is { IsDisposed: false, IsHandleCreated: true } window)
         {
+            // 停止请求来自宿主线程，必须切回窗口线程退出 WinForms 消息循环。
             try { window.BeginInvoke((Action)Application.ExitThread); }
             catch (InvalidOperationException) { }
         }

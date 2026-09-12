@@ -1,6 +1,7 @@
 import { computed, reactive, shallowRef } from 'vue';
 import { FaceCaptureClient } from '../../web-sdk/face-capture.js';
 
+// 页面只展示预先定义的错误文案，避免直接呈现未经筛选的服务端错误内容。
 const errorMessages = {
   INVALID_ADDRESS: '请填写本机 WebSocket 地址，例如 ws://127.0.0.1:17653/face。',
   CONNECTION_FAILED: '连接失败，请确认 FaceCaptureAgent 已启动，且服务地址和端口正确。',
@@ -19,7 +20,7 @@ const errorMessages = {
 function createSdkClient(url, onClosed) {
   return new FaceCaptureClient({
     url,
-    retryDelays: [], // Explicit retries avoid reconnecting after the user has disconnected.
+    retryDelays: [], // 由用户显式重连，避免用户断开后后台重试再次建立连接。
     commandTimeoutMs: 15_000,
     webSocketFactory(address, protocol) {
       const socket = new WebSocket(address, protocol);
@@ -29,8 +30,10 @@ function createSdkClient(url, onClosed) {
   });
 }
 
+/** 集中管理页面状态与 SDK 调用；组件负责展示，自动检测和稳定判断由 Agent 执行。 */
 export function createCaptureController({ createClient = createSdkClient } = {}) {
   const location = globalThis.location;
+  // 内置测试页沿用当前服务端口；独立 Vite 演示默认连接 Agent 的标准端口。
   const defaultUrl = location?.hostname === '127.0.0.1' && location.pathname.startsWith('/test/')
     ? `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/face`
     : 'ws://127.0.0.1:17653/face';
@@ -42,6 +45,7 @@ export function createCaptureController({ createClient = createSdkClient } = {})
   const photo = shallowRef(null);
   const photoUrl = computed(() => photo.value ? `data:image/jpeg;base64,${photo.value.base64}` : '');
   let client = null;
+  // 两级版本分别标记连接和摄像头生命周期，阻止 await 返回的旧结果恢复已失效的页面状态。
   let generation = 0;
   let cameraGeneration = 0;
   let previewElement = null;
@@ -57,6 +61,7 @@ export function createCaptureController({ createClient = createSdkClient } = {})
   function subscribe(sdk, current) {
     const listen = (type, callback) => sdk.on?.(type, data => {
       if (generation !== current || client !== sdk) return;
+      // 设备关闭通知即使在手动模式或拍照完成后也要处理，否则页面会误以为摄像头仍打开。
       if ((type === 'auto.error' && data.cameraClosed) || (acceptAuto && state.captureMode === 'auto')) callback(data);
     });
     subscriptions = [
@@ -140,6 +145,7 @@ export function createCaptureController({ createClient = createSdkClient } = {})
     }
   }
 
+  // 统一控制操作互斥、错误提示和收尾；active 用于每个异步步骤后检查连接是否仍有效。
   async function run(label, action, resetOnError = false) {
     if (state.busy) return;
     const current = generation;
@@ -179,7 +185,7 @@ export function createCaptureController({ createClient = createSdkClient } = {})
       const sdk = createClient(address.href, () => {
         if (generation !== current || client !== sdk) return;
         const wasConnected = state.connected;
-        // A failed initial connection is reported by connect() with a more useful error.
+        // 首次连接失败交给 connect 的异常分支提示，避免被通用断开提示覆盖。
         if (!wasConnected) return;
         disconnect(false);
         state.error = errorMessages.DISCONNECTED;

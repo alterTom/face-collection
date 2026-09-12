@@ -2,6 +2,7 @@ using Tomlyn.Serialization;
 
 namespace FaceCaptureAgent.Configuration;
 
+/// <summary>本机服务配置及默认值；自动拍照模式和稳定时长由每个会话单独设置。</summary>
 public sealed class AgentOptions
 {
     [TomlPropertyName("listen_address")]

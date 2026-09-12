@@ -5,6 +5,7 @@ using OpenCvSharp;
 
 namespace FaceCaptureAgent.Camera;
 
+/// <summary>封装 OpenCV 设备枚举、取帧和 JPEG 编码；用实例锁保护原生摄像头句柄。</summary>
 public sealed class OpenCvCameraService : ICameraService
 {
     private readonly AgentOptions _options;
@@ -17,6 +18,7 @@ public sealed class OpenCvCameraService : ICameraService
         _options = options;
     }
 
+    // 当前通过探测索引 0–9 枚举设备，优先尝试配置的默认索引。
     public static IReadOnlyList<int> CandidateIndices(int defaultIndex)
     {
         var indices = Enumerable.Range(0, 10).ToList();
@@ -245,6 +247,7 @@ public sealed class OpenCvCameraService : ICameraService
 
     private static VideoCapture? TryCreateCapture(int index)
     {
+        // 优先 Media Foundation，失败后回退 DirectShow，以兼容不同摄像头驱动。
         foreach (var backend in new[] { VideoCaptureAPIs.MSMF, VideoCaptureAPIs.DSHOW })
         {
             var capture = new VideoCapture();

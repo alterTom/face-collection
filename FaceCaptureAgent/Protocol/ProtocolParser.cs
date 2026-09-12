@@ -2,6 +2,7 @@ using System.Text.Json;
 
 namespace FaceCaptureAgent.Protocol;
 
+/// <summary>校验消息大小、JSON 结构和命令名称；具体命令参数由会话层继续校验。</summary>
 public static class ProtocolParser
 {
     public const int MaxMessageBytes = 65_536;

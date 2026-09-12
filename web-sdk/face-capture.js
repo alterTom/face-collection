@@ -1,6 +1,7 @@
 const DEFAULT_URL = 'ws://127.0.0.1:17653/face';
 const REQUIRED_PROTOCOL = 'face-capture.v1';
 
+/** 统一封装本地连接错误与 Agent 协议错误，业务方可按 code 和 retryable 处理。 */
 export class FaceCaptureError extends Error {
   constructor(code, message, retryable = false) {
     super(message);
@@ -10,6 +11,7 @@ export class FaceCaptureError extends Error {
   }
 }
 
+/** 浏览器采集入口：管理命令响应、JPEG 预览、心跳和自动拍照事件。 */
 export class FaceCaptureClient {
   constructor(options = {}) {
     this.url = options.url ?? DEFAULT_URL;
@@ -20,6 +22,7 @@ export class FaceCaptureClient {
     this._commandTimeoutMs = options.commandTimeoutMs ?? 10_000;
     this._retryDelays = options.retryDelays ?? [500, 1_500];
     this._heartbeatIntervalMs = options.heartbeatIntervalMs ?? 15_000;
+    // 用 requestId 关联请求与响应；每个待完成请求保存自己的超时和 Promise 回调。
     this._pending = new Map();
     this._counter = 0;
     this._listeners = new Map();
@@ -38,6 +41,7 @@ export class FaceCaptureClient {
     return this._socket?.readyState === 1;
   }
 
+  /** 建立连接；重复调用共享正在进行的连接任务，失败时按配置的间隔重试。 */
   connect() {
     if (this.connected) return Promise.resolve();
     if (this._connectPromise) return this._connectPromise;
@@ -58,6 +62,7 @@ export class FaceCaptureClient {
     return data.devices ?? [];
   }
 
+  /** 打开摄像头。captureMode 为 manual 或 auto；stableDurationMs 为 500–10000 的整数毫秒。 */
   async open(options = {}) {
     return this._sendRoundCommand('camera.open', {
       deviceId: options.deviceId,
@@ -69,6 +74,7 @@ export class FaceCaptureClient {
     });
   }
 
+  /** 订阅 auto.status / auto.capture / auto.error，返回取消订阅函数。 */
   on(eventType, callback) {
     if (!['auto.status', 'auto.capture', 'auto.error'].includes(eventType) || typeof callback !== 'function') {
       throw new TypeError('A supported auto event and callback are required.');
@@ -79,12 +85,14 @@ export class FaceCaptureClient {
     return () => listeners.delete(callback);
   }
 
+  /** 摄像头打开后切换拍照模式，服务端会创建新的自动拍照轮次。 */
   setCaptureMode(options = {}) {
     return this._sendRoundCommand('camera.setCaptureMode', {
       captureMode: options.captureMode, stableDurationMs: options.stableDurationMs,
     });
   }
 
+  /** 自动模式下开始新一轮检测，用于拍完重拍或检测失败后重试。 */
   rearm() {
     return this._sendRoundCommand('capture.rearm');
   }
@@ -94,11 +102,13 @@ export class FaceCaptureClient {
     this._roundVersion += 1;
   }
 
+  // 发命令前使旧轮次失效；只有最新轮次命令的响应才能重新绑定 roundId。
   _sendRoundCommand(type, fields = {}) {
     this._invalidateRound();
     return this._sendCommand(type, fields, { roundVersion: this._roundVersion });
   }
 
+  /** 将连续 JPEG 帧显示到传入的 img 元素；预览频率受 Agent 配置上限限制。 */
   async startPreview(imageElement, options = {}) {
     if (!imageElement || typeof imageElement !== 'object') {
       throw new TypeError('startPreview requires an image element.');
@@ -119,10 +129,12 @@ export class FaceCaptureClient {
     return data;
   }
 
+  /** 手动抓拍，返回含纯 Base64、尺寸和采集时间的照片对象；自动模式需先切回手动。 */
   async capture() {
     return this._sendCommand('capture');
   }
 
+  /** 关闭摄像头并清理预览，保留 WebSocket 连接以便再次打开设备。 */
   async close() {
     this._invalidateRound();
     const data = await this._sendCommand('camera.close');
@@ -130,6 +142,7 @@ export class FaceCaptureClient {
     return data;
   }
 
+  /** 断开连接，清理心跳、预览资源及所有等待中的请求。 */
   disconnect() {
     this._invalidateRound();
     const socket = this._socket;
@@ -272,6 +285,7 @@ export class FaceCaptureClient {
     });
   }
 
+  // 同一连接承载三类数据：二进制预览、带 requestId 的响应、带 roundId 的主动事件。
   _handleMessage(data) {
     if (typeof data !== 'string') {
       this._renderPreview(data);
@@ -308,6 +322,7 @@ export class FaceCaptureClient {
       return;
     }
 
+    // 必须在 resolve 前同步绑定轮次，紧随响应到达的事件才能立即通过轮次校验。
     if (pending.roundVersion !== undefined && pending.roundVersion === this._roundVersion) {
       this._roundId = typeof message.data?.roundId === 'string' ? message.data.roundId : null;
     }
@@ -323,6 +338,7 @@ export class FaceCaptureClient {
     const nextUrl = this._urlApi.createObjectURL(blob);
     if (previousUrl) this._stalePreviewUrls.add(previousUrl);
     this._previewUrl = nextUrl;
+    // 等新帧加载后再回收旧 URL，避免浏览器仍在解码时提前释放；停止预览时统一兜底清理。
     const onload = () => {
       for (const staleUrl of this._stalePreviewUrls) {
         this._urlApi.revokeObjectURL(staleUrl);

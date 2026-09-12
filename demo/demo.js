@@ -1,5 +1,6 @@
 import { FaceCaptureClient, FaceCaptureError } from '../web-sdk/face-capture.js';
 
+// 原生 JavaScript 手动采集示例：连接 → 枚举设备 → 打开并预览 → 抓拍 → 关闭。
 const face = new FaceCaptureClient();
 const elements = {
   connectionState: document.querySelector('#connectionState'),
@@ -30,6 +31,7 @@ elements.captureButton.addEventListener('click', capturePhoto);
 elements.retakeButton.addEventListener('click', clearCapture);
 elements.closeButton.addEventListener('click', closeCamera);
 elements.copyButton.addEventListener('click', copyBase64);
+// 离开页面时断开连接，让 Agent 释放该页面持有的摄像头租约。
 window.addEventListener('pagehide', () => face.disconnect());
 
 async function connect() {
@@ -88,6 +90,7 @@ async function capturePhoto() {
   setStatus('正在抓拍清晰照片…');
   try {
     const photo = await face.capture();
+    // SDK 返回纯 Base64；仅在显示图片时拼接 data URL 前缀，复制时仍使用原始数据。
     rawBase64 = photo.base64;
     elements.capturedImage.src = `data:image/jpeg;base64,${rawBase64}`;
     elements.captureFrame.dataset.active = 'true';
@@ -104,6 +107,7 @@ async function capturePhoto() {
   }
 }
 
+// “重新拍照”只清空上次结果，保留摄像头预览，等待用户再次点击抓拍。
 function clearCapture() {
   rawBase64 = '';
   elements.capturedImage.removeAttribute('src');

@@ -6,6 +6,7 @@ using FaceCaptureAgent.Protocol;
 
 namespace FaceCaptureAgent.Sessions;
 
+/// <summary>管理单个连接的命令、预览和摄像头租约；自动拍照逻辑见同名 AutoCapture 分部文件。</summary>
 public sealed partial class CaptureSession : IAsyncDisposable
 {
     private readonly Guid _ownerId;
@@ -13,6 +14,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
     private readonly CameraLeaseManager _leaseManager;
     private readonly AgentOptions _options;
     private readonly Func<ReadOnlyMemory<byte>, CancellationToken, Task> _binarySender;
+    // 命令锁保护状态切换；设备锁串行化预览、手动抓拍和自动检测的取帧操作。
     private readonly SemaphoreSlim _commandGate = new(1, 1);
     private readonly SemaphoreSlim _cameraGate = new(1, 1);
     private readonly object _disposeGate = new();
@@ -45,8 +47,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
         ClientMessage message,
         CancellationToken cancellationToken)
     {
-        // The connection dispatches commands serially. Cancel before waiting for a
-        // detector that currently owns the gate; validate first to preserve a valid round.
+        // 检测可能正持有命令锁，必须先取消再等锁；先校验参数，避免无效命令中断有效轮次。
         if (State is SessionState.CameraOpen or SessionState.Previewing)
         {
             if (message.Type == "camera.setCaptureMode")
@@ -301,6 +302,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
         }
     }
 
+    // 所有取帧入口共用设备锁，避免同时读取同一个摄像头句柄。
     private async Task<JpegFrame> ReadFrameAsync(CancellationToken cancellationToken)
     {
         await _cameraGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -343,6 +345,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
         }
     }
 
+    // 设备关闭即使抛出异常，也必须在 finally 中归还全局租约。
     private async Task CloseOwnedCameraAsync(CancellationToken cancellationToken)
     {
         var lease = _cameraLease;
@@ -414,7 +417,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
             }
             catch
             {
-                // A failed preview task must not prevent camera and lease cleanup.
+                // 预览任务失败也要继续释放摄像头和租约。
             }
 
             try

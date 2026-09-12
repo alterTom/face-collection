@@ -18,6 +18,7 @@ public sealed class ProtocolException : Exception
     public bool Retryable { get; }
 }
 
+/// <summary>统一协议封装：命令响应带 requestId，主动事件带 event 标记并在 data 中携带轮次。</summary>
 public static class ResponseEnvelope
 {
     public static byte[] Event(string type, object data) =>

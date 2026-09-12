@@ -6,6 +6,7 @@ using FaceCaptureAgent.Diagnostics;
 
 namespace FaceCaptureAgent.Sessions;
 
+/// <summary>处理一个 WebSocket 连接的收包、命令分发和发送；连接结束时释放对应会话。</summary>
 public sealed class WebSocketConnection
 {
     public const string RequiredSubprotocol = "face-capture.v1";
@@ -15,6 +16,7 @@ public sealed class WebSocketConnection
     private readonly CameraLeaseManager _leaseManager;
     private readonly AgentOptions _options;
     private readonly ActivityLog? _log;
+    // 响应、预览帧和自动事件共用连接，必须排队发送，避免并发调用 SendAsync。
     private readonly SemaphoreSlim _sendGate = new(1, 1);
 
     public WebSocketConnection(
@@ -103,7 +105,7 @@ public sealed class WebSocketConnection
 
                 _log?.RecordResponse(message?.Type, response);
                 await SendTextAsync(response, cancellationToken).ConfigureAwait(false);
-                // Establish the round in the client before emitting any of its events.
+                // 先让客户端从响应中绑定轮次，再允许后台推送本轮事件。
                 session.StartPendingAutoCapture();
             }
         }
@@ -142,6 +144,7 @@ public sealed class WebSocketConnection
         }
     }
 
+    // WebSocket 消息可能分片到达；拼接完整消息，并对累计长度执行限制。
     private async Task<IncomingMessage?> ReceiveMessageAsync(CancellationToken cancellationToken)
     {
         using var payload = new MemoryStream();

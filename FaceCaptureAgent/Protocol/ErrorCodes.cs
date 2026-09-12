@@ -1,5 +1,6 @@
 namespace FaceCaptureAgent.Protocol;
 
+/// <summary>浏览器按这些协议错误码选择提示文案，修改时需保持 SDK 兼容。</summary>
 public static class ErrorCodes
 {
     public const string InvalidMessage = "INVALID_MESSAGE";

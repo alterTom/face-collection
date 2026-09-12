@@ -16,7 +16,7 @@ public sealed partial class CaptureSession
     private bool _autoPending;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
 
-    // Called by the connection only after sending the corresponding control response.
+    // 连接层发完控制响应后才调用：客户端需先绑定 roundId，才能接收本轮事件。
     public void StartPendingAutoCapture()
     {
         if (!_autoPending) return;
@@ -25,6 +25,7 @@ public sealed partial class CaptureSession
         _autoTask = AutoCaptureLoopAsync(_roundId, _autoOptions.StableDurationMs, _autoCancellation.Token);
     }
 
+    // 切换模式或重新拍照都生成新轮次，使客户端能够丢弃上一轮迟到的事件。
     private void PrepareAutoRound(AutoCaptureOptions options)
     {
         _autoOptions = options;
@@ -53,6 +54,7 @@ public sealed partial class CaptureSession
         return ResponseEnvelope.Success("capture.rearm.result", message.RequestId, AutoSettings());
     }
 
+    // 先取消、再等待循环退出；等待完成后，调用方才能安全关闭摄像头。
     private async Task StopAutoCaptureAsync()
     {
         _autoPending = false;
@@ -87,6 +89,7 @@ public sealed partial class CaptureSession
     {
         IFaceDetector? detector = null;
         var tracker = new FaceStabilityTracker(stableDurationMs);
+        // 单调时钟不受系统时间校准影响，稳定时长只计算实际经过的时间。
         var clock = Stopwatch.StartNew();
         try
         {
@@ -127,7 +130,7 @@ public sealed partial class CaptureSession
                         return;
                     }
                     token.ThrowIfCancellationRequested();
-                    // Do not capture stale frames if inference stalls.
+                    // 推理超过 750ms 时按无人脸重置计时，防止用过时画面触发拍照。
                     var result = tracker.Update(clock.ElapsedMilliseconds - frameTime > 750 ? [] : faces, frameTime);
                     if (result.Ready)
                     {
@@ -136,6 +139,7 @@ public sealed partial class CaptureSession
                             await SendAutoErrorAsync(roundId, ErrorCodes.ImageTooLarge, false, token).ConfigureAwait(false);
                             return;
                         }
+                        // 直接返回通过稳定判断的这一帧；发送后退出，每轮最多拍一张。
                         await _eventSender(ResponseEnvelope.Event("auto.capture", new
                         {
                             roundId, mimeType = "image/jpeg", frame.Width, frame.Height,
@@ -159,8 +163,8 @@ public sealed partial class CaptureSession
 
     private async Task SendAutoErrorAsync(string roundId, string code, bool cameraClosed, CancellationToken token)
     {
-        // Camera faults belong to the camera lifetime, not the cancelled detection
-        // round. Concurrent preview/auto faults must not cancel the only notification.
+        // 设备故障通知使用会话级取消信号，避免预览与检测互相取消时吞掉唯一的故障通知。
+        // 发送最多等待两秒，防止客户端不接收数据而阻塞清理。
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cameraClosed ? _lifetimeCancellation.Token : token);
         timeout.CancelAfter(TimeSpan.FromSeconds(2));

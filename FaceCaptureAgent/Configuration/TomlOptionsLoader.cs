@@ -2,6 +2,7 @@ using Tomlyn;
 
 namespace FaceCaptureAgent.Configuration;
 
+/// <summary>读取 TOML 并在启动前校验参数，配置缺失或无效时直接终止启动。</summary>
 public static class TomlOptionsLoader
 {
     public static AgentOptions Load(string path)
