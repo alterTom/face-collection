@@ -1,0 +1,48 @@
+{
+  "name": "face-capture-vue",
+  "version": "0.1.0",
+  "description": "Vue 3 local Agent face capture dialog",
+  "type": "module",
+  "license": "UNLICENSED",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/face-capture-vue.js",
+  "module": "./dist/face-capture-vue.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/face-capture-vue.js"
+    },
+    "./style.css": "./dist/face-capture-vue.css"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5175 --strictPort",
+    "build": "vite build && node scripts/copy-types.mjs",
+    "pretest": "npm run build",
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "vue-tsc --noEmit",
+    "test:agent": "node tests/agent-fixture.mjs",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "vue": ">=3.5.0 <4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.8",
+    "happy-dom": "20.14.5",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vue": "3.5.42",
+    "vue-tsc": "3.3.11",
+    "ws": "8.21.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
