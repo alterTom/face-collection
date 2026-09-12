@@ -1,6 +1,69 @@
 # face-capture-vue
 
-Vue 3 人脸照片采集弹窗组件。打开即连接本机 Agent、实时预览并自动抓拍；成功后关闭弹窗，将照片返回调用方。只包含取景区、状态提示、连接倒计时、「重新拍照」「退出认证」，不显示设备配置或日志。
+Vue 3 人脸照片采集组件包，包含两个入口：
+
+- `FaceCapture`：只渲染取景框、实时预览和连接旋转动画。连接、自动拍照和清理由组件负责，页面、按钮、提示和关闭行为由调用方负责。
+- `FaceCaptureDialog`：基于 `FaceCapture` 的默认弹窗，保留原有 `v-model` / `result` 接口，成功或连接超时后自动关闭。
+
+## 自定义页面或弹窗（FaceCapture）
+
+安装方式与下文一致，使用方引入组件和样式即可。下面使用普通面板；可以将外层 `section` 换成自己系统的弹窗或抽屉。即使使用 `v-show` 保留组件，`active=false` 也会释放摄像头和连接。
+
+```vue
+<script setup lang="ts">
+import { ref } from 'vue';
+import { FaceCapture, type FaceCaptureHandle, type CaptureState, type CapturePhoto } from 'face-capture-vue';
+import 'face-capture-vue/style.css';
+
+const visible = ref(false);
+const capture = ref<FaceCaptureHandle | null>(null);
+const state = ref<CaptureState | null>(null);
+const message = ref('');
+const photo = ref<Blob | null>(null);
+
+function success(value: CapturePhoto) {
+  photo.value = value.blob;
+  visible.value = false; // 调用方决定是否关闭页面
+}
+function failed(error: { message: string }) {
+  message.value = error.message;
+  visible.value = false;
+}
+</script>
+
+<template>
+  <button @click="visible = true">打开采集面板</button>
+  <section v-show="visible">
+    <h2>业务系统自定义标题</h2>
+    <FaceCapture ref="capture" :active="visible"
+      service-url="ws://127.0.0.1:17653/face"
+      :connection-timeout-ms="60000"
+      @state-change="state = $event"
+      @success="success" @connection-failed="failed" @error="failed" />
+    <p role="status">{{ state?.message }}</p>
+    <p v-if="state?.remainingSeconds != null">连接剩余 {{ state.remainingSeconds }} 秒</p>
+    <button :disabled="!state?.canRetake" @click="capture?.retake()">重新拍照</button>
+    <button @click="visible = false">退出认证</button>
+  </section>
+  <p>{{ message }}</p>
+</template>
+```
+
+`FaceCapture` 支持下表中相同的服务/摄像头/时间参数，使用 `active`（默认 false）代替 `modelValue`，没有标题属性，不包含弹窗、按钮、可见提示文字或倒计时文字。保持 `active=true` 不会在拍照成功后反复拍照；需要下一轮时先设为 false，等待 Vue 更新后再设为 true。终止后 `retake()` 不会重开；该方法仅重置正在进行的检测或恢复可重试错误。
+
+| 事件 | 参数 | 说明 |
+| --- | --- | --- |
+| `success` | `CapturePhoto` | 成功取得照片，事件前已清理会话 |
+| `connection-failed` | `{ status, code, message }` | 连接达到截止时间，组件停止重试；由调用方关闭页面 |
+| `error` | `{ status: 'error', code: 'INVALID_OPTIONS', message }` | 配置无效，结束会话 |
+| `cancelled` | 无 | active 关闭、cancel、pagehide 或卸载取消当前会话 |
+| `state-change` | `CaptureState` | phase、message、remainingSeconds、canRetake；设备/检测错误以 phase=error 表示，可重拍 |
+| `countdown` | `number \| null` | 剩余连接秒数发生变化时触发，连接结束为 null |
+| `result` | `CaptureResult` | 通用终态事件，与对应 success/connection-failed/error/cancelled 同时提供，业务选一种处理，避免重复上传 |
+
+`CaptureState.phase` 为 idle、connecting、opening、capturing、rearming、error 或 closed。公开方法 `retake(): Promise<void> | undefined`、`cancel(): void`。`cancel()` 结束采集但不修改调用方的 active 或页面；调用方可在 cancelled 中关闭页面。终态先发出 `result`，再发出对应分类事件。
+
+以下安装示例及弹窗行为说明针对默认 `FaceCaptureDialog`；只用取景框时采用上面的接口。
 
 ## 安装与接入
 

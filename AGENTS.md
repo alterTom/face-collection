@@ -46,11 +46,12 @@ Vue 组件使用 Composition API 和 `<script setup>`，连接与摄像头状态
 
 修改 Vue 演示时，除 .NET 与 SDK 测试外，还须运行上述 npm 测试和构建。`tests/fixtures/agent.mjs` 是测试专用 WebSocket 服务，手工运行时监听 17654 端口；`frame.jpg` 是无个人数据的合成测试帧，可作为测试源码提交。不得用真实人脸照片替换测试帧，也不得将模拟服务接入生产流程。页面交互变更需验证桌面与移动端、连接、预览、抓拍、下载、关闭摄像头、断开及错误恢复；模拟测试和浏览器验证不能替代真实设备验证。
 
-## Vue 3 采集弹窗组件
+## Vue 3 采集组件包
 
 `face-capture-widget/` 是独立的 Vue 3.5+ 组件包，当前包名 `face-capture-vue`，版本 0.1.0。源码复用同级 `web-sdk/`，构建时打包 SDK、外置 Vue；不依赖或修改 `vue3-demo` 页面。保持现有 Demo 和 Agent 内置 `/test/` 入口独立。
 
-- 公开入口为 `FaceCaptureDialog`，使用 `v-model` 控制弹窗、`result` 返回结果，类型声明位于 `src/index.d.ts`。调用方须引入 `face-capture-vue/style.css`。
+- 公开入口包含 `FaceCapture`（仅取景框）和 `FaceCaptureDialog`（默认弹窗，组合 FaceCapture）。前者由 `active` 控制采集，提供 success、connection-failed、error、cancelled、state-change、countdown、result 事件和 retake/cancel 方法，不负责页面关闭；后者保持 `v-model` / `result` 兼容。类型声明位于 `src/index.d.ts`，调用方须引入 `face-capture-vue/style.css`。
+- `FaceCapture` 不包含页面标题、按钮或提示文字。active=false 即使没有卸载也必须清理资源；成功或超时后保持 active=true 不得自动开始下一轮。调用方在自己的页面处理提示和结果，勿同时用 result 与分类事件重复执行上传。连接期间只旋转外圈，内部画面保持静止。
 - 弹窗自动连接、枚举设备、预览并使用 Agent 自动抓拍。成功后先关闭弹窗、清理连接，再返回 `success` 和 JPEG Blob、Base64、尺寸等；照片不上传、不下载、不写日志。圆形裁切与镜像只影响预览。
 - 默认 60,000 ms 连接截止时间由所有重试共享，连接成功立即取消倒计时；超时关闭并返回 `connection_failed / AGENT_CONNECTION_TIMEOUT`。成功连接后的拍照不受该倒计时限制。
 - 「重新拍照」在采集中调用 rearm；设备或检测异常时重新连接并开启新的连接倒计时。连接和打开设备期间禁止重复操作。
@@ -71,7 +72,7 @@ npm --prefix face-capture-widget pack
 
 组件测试先构建并验证实际交付产物。示例端口为 5175，合成测试 Agent 端口为 17658，测试图片复用 `vue3-demo/tests/fixtures/frame.jpg`；测试服务不得接入生产。固定 TypeScript 5.9.3 以兼容当前 vue-tsc。改动需通过组件测试、类型检查和构建，提交前运行既有 SDK 与 .NET 测试；交互变更检查桌面/移动布局、倒计时、自动抓拍返回、取消与错误恢复。
 
-2026-09-12 已通过组件 16 项测试、SDK 11 项测试、.NET Release 87 项测试及独立 tarball 安装项目的类型检查和生产构建。浏览器使用合成帧验证桌面 1280×720、移动视口 390×844、预览、重拍、退出、自动抓拍和完整 60 秒超时。详情见 `face-capture-widget/VALIDATION.md`。真实摄像头、目标机器性能与正式 HTTPS 环境仍需验收；移动视口验证不代表手机可以连接电脑 localhost。
+2026-09-12 拆分取景组件后已通过组件 20 项测试、SDK 11 项测试、.NET Release 87 项测试及独立 tarball 安装项目的类型检查和生产构建。浏览器使用合成帧验证默认弹窗及自定义面板，包括桌面/移动布局、预览、重拍、退出、自动抓拍；首次交付还验证了完整 60 秒超时。详情见 `face-capture-widget/VALIDATION.md`。真实摄像头、目标机器性能与正式 HTTPS 环境仍需验收；移动视口验证不代表手机可以连接电脑 localhost。
 
 ## 自动拍照（Agent 实现，2026-09-09）
 

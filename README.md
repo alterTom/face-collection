@@ -207,6 +207,27 @@ await face.open({ deviceId: '0', captureMode: 'auto', stableDurationMs: 1500 });
 .\scripts\test-publish-cleanup.ps1
 ```
 
+## Vue 3 可复用采集组件
+
+`face-capture-widget/` 提供独立组件包 `face-capture-vue`，业务项目需要 Vue 3.5+，并在用户电脑运行本机 Agent。包包含两个入口：
+
+- `FaceCapture` 负责取景框、实时预览、连接动画与自动抓拍；调用方自定义弹窗、按钮和提示，通过 `active` 控制采集，通过事件接收照片、连接失败和倒计时，通过 `retake()` / `cancel()` 控制当前会话。成功或连接超时后由调用方决定关闭页面。
+- `FaceCaptureDialog` 提供默认弹窗，兼容 `v-model` 和 `result` 接口，成功或连接超时后自动关闭。
+
+默认连接超时为 60 秒，连接成功后停止倒计时。关闭采集会清理连接与预览资源；照片返回给调用方，不自动上传。现有 `vue3-demo` 和内置测试页保持独立。
+
+在仓库根目录执行以下命令开发和打包：
+
+```powershell
+npm --prefix face-capture-widget ci
+npm --prefix face-capture-widget run dev
+npm --prefix face-capture-widget test
+npm --prefix face-capture-widget run typecheck
+npm --prefix face-capture-widget pack
+```
+
+示例地址为 `http://127.0.0.1:5175`，包含默认弹窗和调用方自定义面板。当前尚未发布 npm，可将生成的 `.tgz` 安装到业务项目。接入方式、属性、事件和生命周期见[组件文档](face-capture-widget/README.md)，验证范围见[验证记录](face-capture-widget/VALIDATION.md)。
+
 ## 内置测试页
 
 启动采集程序后，在运行日志窗口点击“打开测试页”，默认浏览器会打开本机测试页面。页面和全部前端资源已嵌入程序，安装后的电脑无需 Node.js、源码目录或另外启动测试项目。

@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, ref } from 'vue';
 import { FaceCaptureDialog } from '../src/index.js';
+import CustomCapture from './CustomCapture.vue';
 const visible = ref(false), result = ref('尚未采集'), photoUrl = ref('');
 const serviceUrl = ref('ws://127.0.0.1:17653/face');
 const timeout = ref(60_000);
@@ -23,6 +24,7 @@ onBeforeUnmount(clearPhoto);
     <p role="status">{{ result }}</p><img v-if="photoUrl" :src="photoUrl" alt="调用方收到的照片" />
     <p class="note">本页面中的地址和超时配置用于联调，不会显示在组件弹窗中。照片仅保存在内存。</p>
     <FaceCaptureDialog v-model="visible" :service-url="serviceUrl" :connection-timeout-ms="timeout" @result="receive" />
+    <CustomCapture :service-url="serviceUrl" :connection-timeout-ms="timeout" />
   </main>
 </template>
 <style>

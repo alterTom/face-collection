@@ -8,9 +8,9 @@ const window = new Window({ url: 'http://127.0.0.1/' });
 for (const key of ['window', 'document', 'Element', 'HTMLElement', 'SVGElement', 'Node']) {
   globalThis[key] = key === 'window' ? window : window[key];
 }
-const { createApp, h, ref, nextTick } = await import('vue');
+const { createApp, h, ref, nextTick, onMounted } = await import('vue');
 // Exercise the exact build shipped in the tarball, with the real SDK and WebSocket.
-const { FaceCaptureDialog } = await import('../dist/face-capture-vue.js');
+const { FaceCaptureDialog, FaceCapture } = await import('../dist/face-capture-vue.js');
 async function until(check) {
   const deadline = Date.now() + 3000;
   while (!check()) {
@@ -19,6 +19,48 @@ async function until(check) {
   }
   await nextTick();
 }
+
+test('embedded capture follows active without owning the host page or buttons', async t => {
+  assert.ok(FaceCapture, 'package must export FaceCapture');
+  const agent = await startAgent({ captureDelay: 100 }); t.after(() => agent.close());
+  const active = ref(false), capture = ref(null), photos = [], states = [], countdowns = [];
+  const container = document.createElement('div'); document.body.append(container);
+  const app = createApp({ setup: () => () => h(FaceCapture, { ref: capture, active: active.value,
+    serviceUrl: agent.url, onSuccess: photo => photos.push(photo), onStateChange: s => states.push(s),
+    onCountdown: value => countdowns.push(value),
+  }) });
+  app.mount(container); t.after(() => { app.unmount(); container.remove(); });
+  await nextTick(); await delay(30);
+  assert.equal(agent.connections, 0);
+  assert.equal(container.querySelector('button, dialog'), null);
+  active.value = true;
+  await until(() => photos.length === 1);
+  assert.equal(active.value, true); // host decides whether to close
+  assert.equal(photos[0].blob.type, 'image/jpeg');
+  assert.ok(states.some(s => s.phase === 'capturing'));
+  assert.ok(countdowns.includes(60)); assert.equal(countdowns.at(-1), null);
+  await until(() => agent.connections === 0);
+  await delay(150); assert.equal(photos.length, 1);
+  active.value = false; await nextTick(); active.value = true;
+  await until(() => photos.length === 2);
+});
+
+test('embedded active=false cancels preview without unmounting and supports retake', async t => {
+  assert.ok(FaceCapture);
+  const agent = await startAgent({ captureDelay: 10_000 }); t.after(() => agent.close());
+  const active = ref(true), capture = ref(null), results = [];
+  const container = document.createElement('div'); document.body.append(container);
+  const app = createApp({ setup: () => () => h(FaceCapture, { ref: capture, active: active.value,
+    serviceUrl: agent.url, onResult: value => results.push(value) }) });
+  app.mount(container); t.after(() => { app.unmount(); container.remove(); });
+  await until(() => container.querySelector('img')?.hasAttribute('src'));
+  await capture.value.retake();
+  assert.ok(agent.commands.some(c => c.type === 'capture.rearm'));
+  active.value = false;
+  await until(() => agent.connections === 0);
+  assert.equal(results[0].status, 'cancelled');
+  assert.equal(container.querySelector('img').hasAttribute('src'), false);
+});
 function mount(props = {}) {
   const visible = ref(true), results = [], openAtResult = [];
   const container = document.createElement('div'); document.body.append(container);
@@ -29,6 +71,36 @@ function mount(props = {}) {
   app.mount(container);
   return { visible, results, openAtResult, unmount() { app.unmount(); container.remove(); } };
 }
+
+test('closing parent immediately after modal opens cancels pending startup', async t => {
+  const agent = await startAgent(); t.after(() => agent.close());
+  const original = window.HTMLDialogElement.prototype.showModal;
+  let c;
+  window.HTMLDialogElement.prototype.showModal = function () {
+    original.call(this);
+    queueMicrotask(() => { c.visible.value = false; });
+  };
+  t.after(() => { window.HTMLDialogElement.prototype.showModal = original; });
+  c = mount({ serviceUrl: agent.url }); t.after(() => c.unmount());
+  await delay(100);
+  assert.equal(document.querySelector('dialog').open, false);
+  assert.equal(agent.commands.length, 0);
+  assert.deepEqual(c.results, [{ status: 'cancelled' }]);
+});
+
+test('core cancel during mount prevents pending activation from connecting', async t => {
+  const agent = await startAgent(); t.after(() => agent.close());
+  const capture = ref(null), results = [];
+  const container = document.createElement('div'); document.body.append(container);
+  const app = createApp({ setup() {
+    onMounted(() => capture.value.cancel());
+    return () => h(FaceCapture, { ref: capture, active: true, serviceUrl: agent.url, onResult: r => results.push(r) });
+  } });
+  app.mount(container); t.after(() => { app.unmount(); container.remove(); });
+  await delay(150);
+  assert.equal(agent.commands.length, 0);
+  assert.deepEqual(results, [{ status: 'cancelled' }]);
+});
 
 test('real Agent auto event closes modal before returning Blob and releases WebSocket', async t => {
   const agent = await startAgent({ captureDelay: 200 }); t.after(() => agent.close());
