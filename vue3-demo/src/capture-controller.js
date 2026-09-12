@@ -30,8 +30,12 @@ function createSdkClient(url, onClosed) {
 }
 
 export function createCaptureController({ createClient = createSdkClient } = {}) {
+  const location = globalThis.location;
+  const defaultUrl = location?.hostname === '127.0.0.1' && location.pathname.startsWith('/test/')
+    ? `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/face`
+    : 'ws://127.0.0.1:17653/face';
   const state = reactive({
-    url: 'ws://127.0.0.1:17653/face', connected: false, cameraOpen: false,
+    url: defaultUrl, connected: false, cameraOpen: false,
     deviceId: '', devices: [], busy: '', error: '', logs: [], resolution: '',
     captureMode: 'manual', stableDurationMs: 1500, autoStatus: '', autoComplete: false,
   });

@@ -18,6 +18,7 @@ builder.Services.AddSingleton<CameraLeaseManager>();
 builder.Services.AddTransient<ICameraService, OpenCvCameraService>();
 
 var app = builder.Build();
+FaceCaptureAgent.Hosting.TestPage.Map(app);
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(30)

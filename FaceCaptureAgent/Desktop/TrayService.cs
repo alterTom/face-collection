@@ -1,10 +1,12 @@
 using FaceCaptureAgent.Diagnostics;
+using FaceCaptureAgent.Configuration;
+using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
 
 namespace FaceCaptureAgent.Desktop;
 
-public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifetime) : IHostedService
+public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifetime, AgentOptions options) : IHostedService
 {
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -54,6 +56,32 @@ public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifeti
                 AccessibleName = "运行日志"
             };
             window.Controls.Add(text);
+            using var toolbar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8)
+            };
+            using var testButton = new Button
+            {
+                Text = "打开测试页", AutoSize = true, Enabled = false,
+                AccessibleName = "打开测试页"
+            };
+            testButton.Click += (_, _) =>
+            {
+                var url = $"http://127.0.0.1:{options.ListenPort}/test/";
+                try
+                {
+                    Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                    log.Write("已请求浏览器打开测试页");
+                }
+                catch (Exception exception)
+                {
+                    log.Write($"打开测试页失败：{exception.GetType().Name}");
+                    MessageBox.Show(window, $"无法打开浏览器，请手动访问：{url}", "打开测试页失败",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            };
+            toolbar.Controls.Add(testButton);
+            window.Controls.Add(toolbar);
             using var menu = new ContextMenuStrip();
             using var tray = new NotifyIcon
             {
@@ -83,7 +111,12 @@ public sealed class TrayService(ActivityLog log, IHostApplicationLifetime lifeti
             });
             tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowLog(); };
             using var timer = new System.Windows.Forms.Timer { Interval = 250 };
-            timer.Tick += (_, _) => { if (window.Visible) RefreshLog(); };
+            timer.Tick += (_, _) =>
+            {
+                testButton.Enabled = lifetime.ApplicationStarted.IsCancellationRequested
+                    && !lifetime.ApplicationStopping.IsCancellationRequested;
+                if (window.Visible) RefreshLog();
+            };
             timer.Start();
             _ = window.Handle;
             _window = window;

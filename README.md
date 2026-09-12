@@ -206,3 +206,11 @@ await face.open({ deviceId: '0', captureMode: 'auto', stableDurationMs: 1500 });
 ```powershell
 .\scripts\test-publish-cleanup.ps1
 ```
+
+## 内置测试页
+
+启动采集程序后，在运行日志窗口点击“打开测试页”，默认浏览器会打开本机测试页面。页面和全部前端资源已嵌入程序，安装后的电脑无需 Node.js、源码目录或另外启动测试项目。
+
+默认地址为 `http://127.0.0.1:17653/test/`。修改 `config.toml` 的 `listen_port` 后，按钮和内置页面的默认 WebSocket 地址都会使用该端口。服务启动完成前按钮不可用；浏览器启动失败时会显示可手动访问的地址。退出采集程序后测试页服务随之停止。
+
+源码构建现在需要 Node.js 22.12.0 或更高版本：.NET 构建会自动执行 Vue 生产构建并嵌入资源，首次缺少 node_modules 时自动执行 npm ci。已有依赖时，变更 package-lock.json 后应先执行 `npm --prefix vue3-demo ci`。独立 Vue 开发模式仍默认连接 17653 端口。

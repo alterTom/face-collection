@@ -23,4 +23,14 @@
     <EmbeddedResource Include="Assets\face-capture.ico" LogicalName="FaceCaptureAgent.AppIcon" />
     <None Include="..\config.toml" Link="config.toml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <Target Name="BuildTestPage" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(MSBuildProjectDirectory)\..\vue3-demo" Condition="!Exists('$(MSBuildProjectDirectory)\..\vue3-demo\node_modules')" />
+    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)\..\vue3-demo" />
+    <ItemGroup>
+      <TestPageAsset Include="..\vue3-demo\dist\**\*" />
+      <EmbeddedResource Include="@(TestPageAsset)">
+        <LogicalName>TestPage/%(TestPageAsset.RecursiveDir)%(TestPageAsset.Filename)%(TestPageAsset.Extension)</LogicalName>
+      </EmbeddedResource>
+    </ItemGroup>
+  </Target>
 </Project>

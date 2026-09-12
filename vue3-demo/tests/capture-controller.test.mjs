@@ -87,3 +87,16 @@ test('no camera keeps the connection usable for another device refresh', async (
   assert.match(c.state.error, /未发现/);
   c.disconnect();
 });
+
+test('bundled test page follows its serving port while standalone demo keeps default', () => {
+  const previous = globalThis.location;
+  try {
+    globalThis.location = new URL('http://127.0.0.1:18765/test/');
+    assert.equal(createCaptureController().state.url, 'ws://127.0.0.1:18765/face');
+    globalThis.location = new URL('http://127.0.0.1:5173/');
+    assert.equal(createCaptureController().state.url, 'ws://127.0.0.1:17653/face');
+  } finally {
+    if (previous === undefined) delete globalThis.location;
+    else globalThis.location = previous;
+  }
+});
