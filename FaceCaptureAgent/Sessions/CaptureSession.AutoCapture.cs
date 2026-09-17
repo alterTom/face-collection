@@ -33,7 +33,7 @@ public sealed partial class CaptureSession
         _autoPending = options.CaptureMode == "auto";
     }
 
-    private object AutoSettings() => new { _autoOptions.CaptureMode, _autoOptions.StableDurationMs, roundId = _roundId };
+    private object AutoSettings() => new { _autoOptions.CaptureMode, _autoOptions.StableDurationMs, _autoOptions.VerificationAction, roundId = _roundId };
 
     private async Task<ReadOnlyMemory<byte>> SetCaptureModeAsync(ClientMessage message)
     {
@@ -89,11 +89,14 @@ public sealed partial class CaptureSession
     {
         IFaceDetector? detector = null;
         var tracker = new FaceStabilityTracker(stableDurationMs);
+        var action = _autoOptions.VerificationAction;
+        var blink = action == "blink" ? new BlinkCaptureTracker(stableDurationMs) : null;
+        var motion = action is "mouth-open" or "turn-left" or "turn-right" ? new ActionCaptureTracker(action, stableDurationMs) : null;
         // 单调时钟不受系统时间校准影响，稳定时长只计算实际经过的时间。
         var clock = Stopwatch.StartNew();
         try
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(action == "none" ? 100 : 50));
             while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
             {
                 await _commandGate.WaitAsync(token).ConfigureAwait(false);
@@ -131,7 +134,13 @@ public sealed partial class CaptureSession
                     }
                     token.ThrowIfCancellationRequested();
                     // 推理超过 750ms 时按无人脸重置计时，防止用过时画面触发拍照。
-                    var result = tracker.Update(clock.ElapsedMilliseconds - frameTime > 750 ? [] : faces, frameTime);
+                    var freshFaces = clock.ElapsedMilliseconds - frameTime > (action == "none" ? 750 : 350) ? Array.Empty<FaceBox>() : faces;
+                    var result = motion?.Update(freshFaces, frameTime) ?? blink?.Update(freshFaces, frameTime) ?? tracker.Update(freshFaces, frameTime);
+                    if (result.Status is "blink-timeout" or "action-timeout")
+                    {
+                        await SendAutoErrorAsync(roundId, "ACTION_TIMEOUT", false, token).ConfigureAwait(false);
+                        return;
+                    }
                     if (result.Ready)
                     {
                         if (frame.Bytes.Length > _options.MaxImageBytes)

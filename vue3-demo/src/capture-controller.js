@@ -3,6 +3,7 @@ import { FaceCaptureClient } from '../../web-sdk/face-capture.js';
 
 // 页面只展示预先定义的错误文案，避免直接呈现未经筛选的服务端错误内容。
 const errorMessages = {
+  ACTION_UNSUPPORTED: '本机服务不支持指定动作校验，请升级采集程序。',
   INVALID_ADDRESS: '请填写本机 WebSocket 地址，例如 ws://127.0.0.1:17653/face。',
   CONNECTION_FAILED: '连接失败，请确认 FaceCaptureAgent 已启动，且服务地址和端口正确。',
   CONNECTION_TIMEOUT: '连接超时，请确认本机采集服务已启动。',
@@ -40,7 +41,7 @@ export function createCaptureController({ createClient = createSdkClient } = {})
   const state = reactive({
     url: defaultUrl, connected: false, cameraOpen: false,
     deviceId: '', devices: [], busy: '', error: '', logs: [], resolution: '',
-    captureMode: 'manual', stableDurationMs: 1500, autoStatus: '', autoComplete: false,
+    captureMode: 'manual', stableDurationMs: 1500, verificationAction: 'none', autoStatus: '', autoComplete: false,
   });
   const photo = shallowRef(null);
   const photoUrl = computed(() => photo.value ? `data:image/jpeg;base64,${photo.value.base64}` : '');
@@ -69,6 +70,17 @@ export function createCaptureController({ createClient = createSdkClient } = {})
         state.autoStatus = {
           'no-face': '请面向摄像头', 'multiple-faces': '请保持画面中只有一张人脸',
           stabilizing: '请保持稳定…', complete: '拍照完成',
+          'mouth-close-required': '请闭上嘴巴，保持正脸',
+          'mouth-open-required': '请张开嘴巴',
+          'turn-left-required': '请向您自己的左侧转头',
+          'turn-right-required': '请向您自己的右侧转头',
+          'action-face-camera': '请正对摄像头，保持自然姿态',
+          'action-return': '请恢复正脸姿态，保持稳定',
+          'action-passed': '动作校验通过，请保持稳定…',
+          'blink-required': '请面向摄像头，缓慢眨眼一次',
+          'blink-open-eyes': '请睁开双眼',
+          'blink-face-camera': '请正对摄像头，确保双眼清晰可见',
+          'blink-passed': '眨眼校验通过，请保持稳定…',
         }[data.status] ?? state.autoStatus;
       }),
       listen('auto.capture', data => {
@@ -83,7 +95,8 @@ export function createCaptureController({ createClient = createSdkClient } = {})
           clearPreview();
           state.error = errorMessages.CAMERA_DISCONNECTED;
         } else {
-          state.autoStatus = '人脸检测不可用，请切换手动拍照或点击重新检测';
+          state.autoStatus = data.code === 'ACTION_TIMEOUT' ? '动作校验超时，请点击重新检测并按提示完成动作'
+            : state.verificationAction !== 'none' ? '人脸检测不可用，请点击重新检测' : '人脸检测不可用，请切换手动拍照或点击重新检测';
         }
         log(state.error || state.autoStatus, 'error');
       }),
@@ -97,7 +110,8 @@ export function createCaptureController({ createClient = createSdkClient } = {})
     if (!state.cameraOpen) return;
     acceptAuto = mode === 'auto';
     return run('切换拍照模式', async () => {
-      await client.setCaptureMode({ captureMode: mode, stableDurationMs: state.stableDurationMs });
+      const result = await client.setCaptureMode({ captureMode: mode, stableDurationMs: state.stableDurationMs, verificationAction: state.verificationAction });
+      checkAction(result);
     }, true);
   }
 
@@ -105,7 +119,14 @@ export function createCaptureController({ createClient = createSdkClient } = {})
     if (state.busy || !state.cameraOpen || state.captureMode !== 'auto') return;
     resetAuto();
     acceptAuto = true;
-    return run('重新检测', async () => { await client.rearm(); }, true);
+    return run('重新检测', async () => { checkAction(await client.rearm()); }, true);
+  }
+
+  function checkAction(settings) {
+    if (state.captureMode === 'auto' && state.verificationAction !== 'none' && settings?.verificationAction !== state.verificationAction) {
+      acceptAuto = false;
+      throw { code: 'ACTION_UNSUPPORTED' };
+    }
   }
 
   function log(message, tone = 'info') {
@@ -214,8 +235,9 @@ export function createCaptureController({ createClient = createSdkClient } = {})
       resetAuto();
       acceptAuto = state.captureMode === 'auto';
       const result = await sdk.open({ deviceId: state.deviceId, width: 1280, height: 720, fps: 15,
-        captureMode: state.captureMode, stableDurationMs: state.stableDurationMs });
+        captureMode: state.captureMode, stableDurationMs: state.stableDurationMs, verificationAction: state.verificationAction });
       if (!active() || cameraRound !== cameraGeneration) return;
+      checkAction(result);
       previewElement = image;
       try {
         await sdk.startPreview(image, { fps: 5 });

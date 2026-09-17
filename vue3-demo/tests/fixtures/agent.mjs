@@ -12,7 +12,7 @@ export async function startTestAgent(port = 0) {
   await new Promise((done, reject) => { server.once('listening', done); server.once('error', reject); });
   server.on('connection', (socket, request) => {
     let opened = false;
-    let timer, autoTimer, roundId, captureMode = 'manual', stableDurationMs = 1500;
+    let timer, autoTimer, roundId, captureMode = 'manual', stableDurationMs = 1500, verificationAction = 'none';
     const photo = () => ({ width: 640, height: 480, size: jpeg.length, mimeType: 'image/jpeg', base64: jpeg.toString('base64'), capturedAt: new Date().toISOString() });
     const event = (type, data) => socket.send(JSON.stringify({ type, event: true, data: { roundId, ...data } }));
     const beginRound = () => {
@@ -22,14 +22,15 @@ export async function startTestAgent(port = 0) {
     // Synthetic protocol events test the UI, not face detection.
     const startAuto = () => {
       if (captureMode !== 'auto') return;
-      event('auto.status', { status: 'stabilizing' });
+      event('auto.status', { status: verificationAction !== 'none' ? verificationAction + '-required' : 'stabilizing' });
       autoTimer = setTimeout(() => {
         if (!opened || socket.readyState !== 1) return;
+        if (request.url === '/blink-timeout') { event('auto.error', { code: 'ACTION_TIMEOUT', cameraClosed: false }); return; }
         event('auto.capture', photo());
         event('auto.status', { status: 'complete' });
-      }, 40);
+      }, verificationAction !== 'none' ? 4000 : 40);
     };
-    const configuration = () => ({ roundId, captureMode, stableDurationMs });
+    const configuration = () => ({ roundId, captureMode, stableDurationMs, verificationAction });
     const stop = () => { clearInterval(timer); timer = null; };
     socket.on('close', () => { stop(); clearTimeout(autoTimer); });
     socket.on('message', raw => {
@@ -44,12 +45,14 @@ export async function startTestAgent(port = 0) {
           opened = true;
           captureMode = message.captureMode ?? 'manual';
           stableDurationMs = message.stableDurationMs ?? 1500;
+          verificationAction = message.verificationAction ?? 'none';
           beginRound();
           send('camera.open.result', { width: 640, height: 480, fps: 15, ...configuration() });
           startAuto();
           break;
         case 'camera.setCaptureMode':
         case 'capture.rearm':
+          verificationAction = message.verificationAction ?? verificationAction;
           if (!opened) { error('INVALID_STATE'); break; }
           captureMode = message.captureMode ?? captureMode;
           stableDurationMs = message.stableDurationMs ?? stableDurationMs;

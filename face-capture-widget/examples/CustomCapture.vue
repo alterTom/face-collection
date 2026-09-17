@@ -3,6 +3,12 @@ import { onBeforeUnmount, ref } from 'vue';
 import { FaceCapture } from '../src/index.js';
 defineProps({ serviceUrl: String, connectionTimeoutMs: Number });
 const active = ref(false), capture = ref(null), state = ref(null), result = ref(''), photoUrl = ref('');
+const verificationAction = ref('blink');
+function startCapture() {
+  const actions = ['blink', 'mouth-open', 'turn-left', 'turn-right'];
+  verificationAction.value = actions[crypto.getRandomValues(new Uint32Array(1))[0] % actions.length];
+  active.value = true;
+}
 function clearPhoto() { if (photoUrl.value) URL.revokeObjectURL(photoUrl.value); photoUrl.value = ''; }
 function receive(value) {
   active.value = false;
@@ -17,11 +23,11 @@ onBeforeUnmount(clearPhoto);
   <section class="custom-example">
     <h2>自定义页面接入</h2>
     <p>下方标题、提示和按钮由调用页面提供，采集组件仅显示取景框。</p>
-    <button :disabled="active" @click="active = true">打开自定义采集面板</button>
+    <button :disabled="active" @click="startCapture">打开自定义采集面板</button>
     <section v-show="active" class="custom-panel" aria-label="业务自定义采集面板">
       <h3>请完成照片采集</h3>
       <FaceCapture ref="capture" :active="active" :service-url="serviceUrl"
-        :connection-timeout-ms="connectionTimeoutMs" @state-change="state = $event" @result="receive" />
+        :connection-timeout-ms="connectionTimeoutMs" :verification-action="verificationAction" @state-change="state = $event" @result="receive" />
       <p role="status">{{ state?.message }}</p>
       <p v-if="state?.remainingSeconds != null">连接剩余 {{ state.remainingSeconds }} 秒</p>
       <div class="custom-actions">

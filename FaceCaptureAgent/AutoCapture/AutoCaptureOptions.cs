@@ -4,7 +4,7 @@ using FaceCaptureAgent.Protocol;
 namespace FaceCaptureAgent.AutoCapture;
 
 /// <summary>会话级拍照参数；切换模式时未提供的字段沿用当前值，首次打开默认手动。</summary>
-public sealed record AutoCaptureOptions(string CaptureMode = "manual", int StableDurationMs = 1500)
+public sealed record AutoCaptureOptions(string CaptureMode = "manual", int StableDurationMs = 1500, string VerificationAction = "none")
 {
     public static AutoCaptureOptions Parse(JsonElement payload, AutoCaptureOptions? defaults = null)
     {
@@ -20,6 +20,14 @@ public sealed record AutoCaptureOptions(string CaptureMode = "manual", int Stabl
         if (payload.TryGetProperty("stableDurationMs", out value)
             && (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out duration) || duration is < 500 or > 10000))
             throw new ProtocolException(ErrorCodes.InvalidMessage, "stableDurationMs must be an integer between 500 and 10000.");
-        return new(mode, duration);
+        var action = defaults.VerificationAction;
+        if (payload.TryGetProperty("verificationAction", out value))
+        {
+            if (value.ValueKind != JsonValueKind.String || value.GetString() is not
+                ("none" or "blink" or "mouth-open" or "turn-left" or "turn-right"))
+                throw new ProtocolException(ErrorCodes.InvalidMessage, "Invalid verificationAction.");
+            action = value.GetString()!;
+        }
+        return new(mode, duration, action);
     }
 }

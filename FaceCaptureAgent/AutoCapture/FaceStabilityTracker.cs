@@ -1,6 +1,13 @@
 namespace FaceCaptureAgent.AutoCapture;
 
-public sealed record FaceBox(double X, double Y, double Width, double Height);
+public enum EyeState { Unknown, Open, Closed, Transition }
+public sealed record FaceBox(double X, double Y, double Width, double Height)
+{
+    public EyeState Eyes { get; init; }
+    public EyeMeasurement? EyeMeasurement { get; init; }
+    public double MouthRatio { get; init; } = double.NaN;
+    public double TurnRatio { get; init; } = double.NaN;
+}
 public sealed record StabilityResult(bool Ready, string Status);
 
 /// <summary>按人脸框的位置和尺寸判断连续稳定；每个实例只触发一次，不进行身份或活体识别。</summary>
@@ -12,7 +19,7 @@ public sealed class FaceStabilityTracker(int stableDurationMs)
     private bool _fired;
 
     /// <summary>输入本帧人脸框及单调递增的毫秒时间；无人脸、多人或超限变化会重置稳定窗口。</summary>
-    public StabilityResult Update(IReadOnlyList<FaceBox> faces, long nowMs)
+    public StabilityResult Update(IReadOnlyList<FaceBox> faces, long nowMs, bool allowCapture = true)
     {
         if (_fired) return new(false, "complete");
         var box = faces.Count == 1 ? faces[0] : null;
@@ -34,7 +41,7 @@ public sealed class FaceStabilityTracker(int stableDurationMs)
             _since = nowMs;
         }
         _last = nowMs;
-        _fired = nowMs - _since >= stableDurationMs;
+        _fired = allowCapture && nowMs - _since >= stableDurationMs;
         return new(_fired, _fired ? "complete" : "stabilizing");
     }
 }

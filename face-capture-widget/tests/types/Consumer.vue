@@ -15,8 +15,8 @@ function receive(result: CaptureResult) {
 }
 </script>
 <template>
-  <FaceCaptureDialog v-model="visible" :connection-timeout-ms="60000" @result="receive" />
-  <FaceCapture ref="capture" :active="visible" @result="receive" @state-change="state = $event"
+  <FaceCaptureDialog v-model="visible" :connection-timeout-ms="60000" verification-action="mouth-open" @result="receive" />
+  <FaceCapture ref="capture" :active="visible" verification-action="turn-left" @result="receive" @state-change="state = $event"
     @success="photo => { const blob: Blob = photo.blob; void blob; }"
     @countdown="seconds => { const value: number | null = seconds; void value; }" />
   <button :disabled="!state?.canRetake" @click="capture?.retake()">重拍</button>

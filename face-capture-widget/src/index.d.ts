@@ -19,6 +19,7 @@ export interface CaptureOptions {
   serviceUrl?: string;
   deviceId?: string;
   stableDurationMs?: number;
+  verificationAction?: 'none' | 'blink' | 'mouth-open' | 'turn-left' | 'turn-right';
   connectionTimeoutMs?: number;
 }
 export interface FaceCaptureDialogProps extends CaptureOptions {

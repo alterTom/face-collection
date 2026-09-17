@@ -7,9 +7,22 @@ const messages = {
   DISCONNECTED: '本机采集服务已断开，请重新拍照',
   CAMERA_DISCONNECTED: '摄像头已断开，请检查设备后重新拍照',
   DETECTION_FAILED: '人脸检测失败，请重新拍照',
+  ACTION_TIMEOUT: '动作校验超时，请重新拍照并按提示完成动作',
+  ACTION_UNSUPPORTED: '本机服务不支持指定动作校验，请升级采集程序',
   INVALID_PHOTO: '未获得有效照片，请重新拍照',
 };
 const statusMessages = {
+  'mouth-close-required': '请闭上嘴巴，保持正脸',
+  'mouth-open-required': '请张开嘴巴',
+  'turn-left-required': '请向您自己的左侧转头',
+  'turn-right-required': '请向您自己的右侧转头',
+  'action-face-camera': '请正对摄像头，保持自然姿态',
+  'action-return': '请恢复正脸姿态，保持稳定',
+  'action-passed': '动作校验通过，请保持稳定…',
+  'blink-required': '请面向摄像头，缓慢眨眼一次',
+  'blink-open-eyes': '请睁开双眼',
+  'blink-face-camera': '请正对摄像头，确保双眼清晰可见',
+  'blink-passed': '眨眼校验通过，请保持稳定…',
   'no-face': '请将面部置于取景区域内',
   'multiple-faces': '请保持画面中只有一张人脸',
   stabilizing: '请保持稳定，正在自动拍照…',
@@ -25,10 +38,11 @@ export function createCaptureSession(options = {}, dependencies = {}) {
     setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: id => clearTimeout(id),
   };
   const config = { serviceUrl: 'ws://127.0.0.1:17653/face', connectionTimeoutMs: 60_000,
-    stableDurationMs: 1500, ...options };
+    stableDurationMs: 1500, verificationAction: 'none', ...options };
   let state = { phase: 'idle', message: '', remainingSeconds: null };
   let client, image, deadline, timer, retryTimer;
   let version = 0, finished = false, started = false, connected = false;
+  let actionConfirmed = config.verificationAction === 'none';
   let unsubscribers = [];
 
   function update(values) { state = { ...state, ...values }; onState({ ...state }); }
@@ -71,6 +85,7 @@ export function createCaptureSession(options = {}, dependencies = {}) {
     timer = clock.setTimeout(tick, Math.min(250, left));
   }
   function acceptPhoto(data) {
+    if (!actionConfirmed) { fail('ACTION_UNSUPPORTED'); return; }
     try {
       if (data?.mimeType !== 'image/jpeg' || !data.base64 || !(data.width > 0) || !(data.height > 0)) throw new Error();
       const bytes = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0));
@@ -82,6 +97,7 @@ export function createCaptureSession(options = {}, dependencies = {}) {
   }
   async function attempt() {
     if (finished || expired()) return;
+    actionConfirmed = config.verificationAction === 'none';
     const current = ++version;
     const active = () => !finished && current === version;
     let sdk;
@@ -103,14 +119,16 @@ export function createCaptureSession(options = {}, dependencies = {}) {
       unsubscribers = [
         listen('auto.status', data => update({ message: statusMessages[data.status] ?? '请面向摄像头' })),
         listen('auto.capture', acceptPhoto),
-        listen('auto.error', data => fail(data.cameraClosed ? 'CAMERA_DISCONNECTED' : 'DETECTION_FAILED')),
+        listen('auto.error', data => fail(data.cameraClosed ? 'CAMERA_DISCONNECTED' : data.code === 'ACTION_TIMEOUT' ? 'ACTION_TIMEOUT' : 'DETECTION_FAILED')),
       ];
-      await sdk.open({ deviceId: device.id, width: 1280, height: 720, fps: 15,
-        captureMode: 'auto', stableDurationMs: config.stableDurationMs });
+      const settings = await sdk.open({ deviceId: device.id, width: 1280, height: 720, fps: 15,
+        captureMode: 'auto', stableDurationMs: config.stableDurationMs, verificationAction: config.verificationAction });
       if (!active()) return;
+      actionConfirmed = config.verificationAction === 'none' || settings?.verificationAction === config.verificationAction;
+      if (!actionConfirmed) { fail('ACTION_UNSUPPORTED'); return; }
       await sdk.startPreview(image, { fps: 5 });
       if (!active()) return;
-      update({ phase: 'capturing', message: '请面向摄像头，保持稳定' });
+      update({ phase: 'capturing', message: config.verificationAction !== 'none' ? statusMessages[config.verificationAction + '-required'] : '请面向摄像头，保持稳定' });
     } catch (error) {
       if (!active()) return;
       if (connected) { fail(error?.code); return; }
@@ -133,6 +151,7 @@ export function createCaptureSession(options = {}, dependencies = {}) {
       || url.username || url.password || url.hash
       || !Number.isInteger(config.connectionTimeoutMs) || config.connectionTimeoutMs < 1 || config.connectionTimeoutMs > 2_147_483_647
       || !Number.isInteger(config.stableDurationMs) || config.stableDurationMs < 500 || config.stableDurationMs > 10_000
+      || !['none', 'blink', 'mouth-open', 'turn-left', 'turn-right'].includes(config.verificationAction)
       || (config.deviceId != null && typeof config.deviceId !== 'string')) throw new Error();
   }
   function start(element) {
@@ -149,10 +168,15 @@ export function createCaptureSession(options = {}, dependencies = {}) {
     if (state.phase === 'error') { release(); connect(); return; }
     if (state.phase !== 'capturing') return;
     const current = version;
+    actionConfirmed = config.verificationAction === 'none';
     update({ phase: 'rearming', message: '正在重新开始拍照…' });
     try {
-      await client.rearm();
-      if (!finished && current === version) update({ phase: 'capturing', message: '请面向摄像头，保持稳定' });
+      const settings = await client.rearm();
+      if (!finished && current === version) {
+        if (config.verificationAction !== 'none' && settings?.verificationAction !== config.verificationAction) { fail('ACTION_UNSUPPORTED'); return; }
+        actionConfirmed = true;
+        update({ phase: 'capturing', message: config.verificationAction !== 'none' ? statusMessages[config.verificationAction + '-required'] : '请面向摄像头，保持稳定' });
+      }
     } catch (error) { if (!finished && current === version) fail(error?.code); }
   }
   return { start, retake, cancel: () => finish({ status: 'cancelled' }) };

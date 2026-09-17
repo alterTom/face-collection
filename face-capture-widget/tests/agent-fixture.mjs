@@ -12,11 +12,11 @@ export async function startAgent({ port = 0, captureDelay = 60, busyOnce = false
   await new Promise((done, reject) => { server.once('listening', done); server.once('error', reject); });
   const commands = [];
   server.on('connection', (socket, request) => {
-    let captureTimer, previewTimer, roundId, open = false;
+    let captureTimer, previewTimer, roundId, open = false, verificationAction = 'none';
     const sendEvent = (type, data) => { if (socket.readyState === 1) socket.send(JSON.stringify({ type, event: true, data: { ...data, roundId } })); };
     const begin = () => {
       clearTimeout(captureTimer);
-      sendEvent('auto.status', { status: 'stabilizing' });
+      sendEvent('auto.status', { status: verificationAction !== 'none' ? verificationAction + '-required' : 'stabilizing' });
       if (request.url === '/idle') return;
       captureTimer = setTimeout(() => sendEvent('auto.capture', {
         base64: jpeg.toString('base64'), mimeType: 'image/jpeg', width: 640, height: 480,
@@ -25,14 +25,15 @@ export async function startAgent({ port = 0, captureDelay = 60, busyOnce = false
     };
     socket.on('message', raw => {
       const message = JSON.parse(raw.toString());
-      commands.push({ type: message.type, captureMode: message.captureMode, deviceId: message.deviceId });
+      commands.push({ type: message.type, captureMode: message.captureMode, deviceId: message.deviceId, verificationAction: message.verificationAction });
       const reply = data => socket.send(JSON.stringify({ type: `${message.type}.result`, requestId: message.requestId, data }));
       const error = code => socket.send(JSON.stringify({ type: 'error', requestId: message.requestId, error: { code, message: 'test-only internal details' } }));
       if (message.type === 'device.list') reply({ devices: [{ id: '0', name: '合成测试摄像头' }] });
       else if (message.type === 'camera.open' || message.type === 'capture.rearm') {
         if (request.url === '/busy' || busyOnce) { busyOnce = false; error('CAMERA_BUSY'); return; }
         open = true; roundId = randomUUID();
-        reply({ roundId, captureMode: 'auto', stableDurationMs: 1500, width: 640, height: 480 }); begin();
+        verificationAction = message.verificationAction ?? verificationAction;
+        reply({ roundId, captureMode: 'auto', stableDurationMs: 1500, verificationAction, width: 640, height: 480 }); begin();
       } else if (message.type === 'preview.start') {
         if (!open) { error('INVALID_STATE'); return; }
         reply({ fps: 5 }); socket.send(jpeg);

@@ -38,7 +38,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
         _options = options;
         _binarySender = binarySender;
         _eventSender = eventSender ?? ((_, _) => Task.CompletedTask);
-        _detectorFactory = detectorFactory ?? (() => new YuNetFaceDetector());
+        _detectorFactory = detectorFactory ?? (() => new YuNetFaceDetector(_autoOptions.VerificationAction));
     }
 
     public SessionState State { get; private set; } = SessionState.Connected;
@@ -115,7 +115,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
         ResponseEnvelope.Success(
             "system.info.result",
             message.RequestId,
-            new { agentVersion = "1.1.0", protocolVersion = "1.0", platform = "win-x64", capabilities = new[] { "auto-capture" } });
+            new { agentVersion = "1.1.3", protocolVersion = "1.0", platform = "win-x64", capabilities = new[] { "auto-capture", "verification-action" }, verificationActions = new[] { "none", "blink", "mouth-open", "turn-left", "turn-right" } });
 
     private async Task<ReadOnlyMemory<byte>> ListDevicesAsync(
         ClientMessage message,
@@ -155,7 +155,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
             State = SessionState.CameraOpen;
             PrepareAutoRound(autoOptions);
             return ResponseEnvelope.Success("camera.open.result", message.RequestId,
-                new { result.Width, result.Height, result.Fps, _autoOptions.CaptureMode, _autoOptions.StableDurationMs, roundId = _roundId });
+                new { result.Width, result.Height, result.Fps, _autoOptions.CaptureMode, _autoOptions.StableDurationMs, _autoOptions.VerificationAction, roundId = _roundId });
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

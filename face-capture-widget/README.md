@@ -171,7 +171,7 @@ interface CapturePhoto {
 
 ## 本仓库开发与验证
 
-源码构建需要保留同级 `web-sdk/`；测试使用同级 `vue3-demo/tests/fixtures/frame.jpg` 合成图像。现有 `vue3-demo`、SDK 和 Agent 源码不作修改。
+源码构建需要保留同级 `web-sdk/`；测试使用同级 `vue3-demo/tests/fixtures/frame.jpg` 合成图像。检测逻辑在 Agent 中，组件仅负责传参、预览和状态展示。
 
 在本目录执行（Node.js 22.12+）：
 
@@ -195,3 +195,32 @@ npm pack
 生成 `face-capture-vue-0.1.0.tgz`，只包含编译后的 ESM、CSS、类型声明、README 和包元数据，不含测试服务、源码依赖路径或照片。可以将该文件交付其他项目安装。
 
 `face-capture-vue` 是当前本地包名，尚未核实 npm 名称可用性。正式发布前确定包名/组织 scope、使用许可及公开或私有方式，再使用具有对应权限的 npm 账号发布。当前 `UNLICENSED` 未授予开源许可；本任务不会执行 npm publish。
+## 每轮选择一种校验动作
+
+`FaceCapture` 和 `FaceCaptureDialog` 均使用 `verificationAction`，默认 `'none'`，可选 `'blink'`、`'mouth-open'`、`'turn-left'`、`'turn-right'`。旧布尔参数已移除。Agent 必须运行支持 `verification-action` 的新版程序。
+
+```vue
+<script setup>
+import { ref } from 'vue';
+import { FaceCaptureDialog } from 'face-capture-vue';
+import 'face-capture-vue/style.css';
+const visible = ref(false);
+const verificationAction = ref('blink');
+const actions = ['blink', 'mouth-open', 'turn-left', 'turn-right'];
+function start() {
+  verificationAction.value = actions[crypto.getRandomValues(new Uint32Array(1))[0] % actions.length];
+  visible.value = true;
+}
+function receive(result) { /* 在这里处理 result.status 和 result.photo */ }
+</script>
+<template>
+  <button @click="start">开始采集</button>
+  <FaceCaptureDialog v-model="visible" :verification-action="verificationAction" @result="receive" />
+</template>
+```
+
+随机选择由调用方负责，在打开组件之前执行一次。本轮参数取启动时快照，修改 prop 不改变正在执行的检测。组件内「重新拍照」沿用本轮动作并清空检测进度；需要重新抽取时，关闭当前轮再选择动作并重新打开。`random` 不是有效参数，不能传给 Agent。
+
+只有选定动作参与通过条件，转头不要求眨眼或张嘴。动作完成后恢复姿态并稳定才拍照。左右以使用者本人为准，前端镜像只影响预览。
+
+服务端必须回显请求的动作；不支持或回显其他动作时停止采集并提示升级，不自动跳过校验。整轮动作和稳定拍照最多 15 秒，与连接超时独立；超时显示提示并允许重试。仅取景组件通过 `state-change.message` 提供动作提示，调用方应展示。动作校验不等同防回放活体检测，真人设备验证仍需单独完成。

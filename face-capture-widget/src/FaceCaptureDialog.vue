@@ -6,6 +6,7 @@ const props = defineProps({
   serviceUrl: { type: String, default: 'ws://127.0.0.1:17653/face' },
   deviceId: { type: String, default: undefined },
   stableDurationMs: { type: Number, default: 1500 },
+  verificationAction: { type: String, default: 'none' },
   connectionTimeoutMs: { type: Number, default: 60_000 },
   title: { type: String, default: '人脸采集' },
 });
@@ -54,9 +55,10 @@ onBeforeUnmount(() => { mounted = false; opening++; stopWatch?.(); cancel(); });
       <div class="fcw-content">
         <FaceCapture ref="capture" :active="captureActive" :service-url="serviceUrl" :device-id="deviceId"
           :stable-duration-ms="stableDurationMs" :connection-timeout-ms="connectionTimeoutMs"
+          :verification-action="verificationAction"
           @state-change="state = $event" @result="receive" />
         <p :id="statusId" class="fcw-status" :class="{ 'fcw-status--error': state.phase === 'error' }" role="status" aria-live="polite">{{ state.message }}</p>
-        <p class="fcw-hint">{{ state.phase === 'connecting' ? '请确认本机采集服务已启动' : '面向摄像头，单张人脸稳定后将自动完成采集' }}</p>
+        <p class="fcw-hint">{{ state.phase === 'connecting' ? '请确认本机采集服务已启动' : verificationAction !== 'none' ? '按提示完成本轮动作后，保持正脸稳定即可完成采集' : '面向摄像头，单张人脸稳定后将自动完成采集' }}</p>
         <p v-if="state.remainingSeconds !== null" class="fcw-countdown" role="timer">连接倒计时 <strong>{{ state.remainingSeconds }}</strong> 秒</p>
         <div v-else class="fcw-countdown fcw-countdown--empty" aria-hidden="true"></div>
         <div class="fcw-actions">

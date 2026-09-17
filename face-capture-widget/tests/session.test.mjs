@@ -3,6 +3,29 @@ import assert from 'node:assert/strict';
 import { createCaptureSession } from '../src/session.js';
 
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+
+test('blink option is forwarded, status is shown and timeout permits retry', async () => {
+  const f = setup({ async open(value) { this.options = value; return { verificationAction: 'blink' }; } }, { verificationAction: 'blink' });
+  f.session.start({}); await flush();
+  assert.equal(f.clients[0].options.verificationAction, 'blink');
+  f.clients[0].event('auto.status', { status: 'blink-required' });
+  assert.match(f.states.at(-1).message, /眨眼/);
+  f.clients[0].event('auto.error', { code: 'ACTION_TIMEOUT' });
+  assert.equal(f.states.at(-1).phase, 'error');
+  assert.match(f.states.at(-1).message, /动作.*超时/);
+  await f.session.retake(); await flush();
+  assert.equal(f.clients.length, 2);
+  f.session.cancel();
+});
+
+test('requested blink verification rejects an old Agent that ignores the option', async () => {
+  const f = setup({}, { verificationAction: 'blink' });
+  f.session.start({}); await flush();
+  assert.equal(f.states.at(-1).phase, 'error');
+  assert.match(f.states.at(-1).message, /升级/);
+  assert.equal(f.results.length, 0);
+  f.session.cancel();
+});
 function setup(overrides = {}, options = {}) {
   let time = 0, id = 0;
   const timers = new Map(), results = [], states = [], clients = [];
@@ -139,6 +162,32 @@ test('invalid options return configuration error without opening a socket', asyn
   for (const options of [{ serviceUrl: 'ws://example.com/face' }, { stableDurationMs: 100 }, { connectionTimeoutMs: NaN }]) {
     const f = setup({}, options); f.session.start({}); await flush();
     assert.equal(f.results[0].status, 'error');
+    assert.equal(f.results[0].code, 'INVALID_OPTIONS');
+    assert.equal(f.clients.length, 0);
+  }
+});
+
+for (const action of ['blink', 'mouth-open', 'turn-left', 'turn-right']) {
+  test(`${action} stays selected on rearm and rejects acknowledgement of another action`, async () => {
+    const f = setup({
+      async open(value) { this.options = value; return { verificationAction: action }; },
+      async rearm() { return { verificationAction: action === 'blink' ? 'mouth-open' : 'blink' }; },
+    }, { verificationAction: action });
+    f.session.start({}); await flush();
+    assert.equal(f.clients[0].options.verificationAction, action);
+    assert.equal(f.states.at(-1).phase, 'capturing');
+    await f.session.retake();
+    assert.equal(f.states.at(-1).phase, 'error');
+    assert.match(f.states.at(-1).message, /升级/);
+    assert.equal(f.results.length, 0);
+    f.session.cancel();
+  });
+}
+
+test('unknown and non-string actions are rejected before connecting', async () => {
+  for (const action of ['random', '', true, null, ['blink']]) {
+    const f = setup({}, { verificationAction: action });
+    f.session.start({}); await flush();
     assert.equal(f.results[0].code, 'INVALID_OPTIONS');
     assert.equal(f.clients.length, 0);
   }

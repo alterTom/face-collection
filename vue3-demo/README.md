@@ -90,3 +90,11 @@ unsubscribe();
 ```
 
 `stableDurationMs` 为 500–10000 的整数，默认 1500；`captureMode` 默认 `manual`。SDK 在成功响应后同步绑定 `roundId`，调用切换模式、重新拍照、关闭、断开时立即使旧轮失效。自动事件不能完成待处理命令。原有手动调用保持兼容；自动功能需要新版 Agent。
+
+## 独立动作校验
+
+选择自动模式后，在打开摄像头之前选择“校验动作（每轮一种）”：不校验、眨眼、张嘴、向本人左侧转头或向本人右侧转头。摄像头打开后锁定动作选择；重拍沿用所选动作并清空检测进度。需要修改动作时关闭摄像头后重新选择。
+
+页面通过 `verificationAction` 把确定的动作传给 Agent，不执行检测。Agent 只验证该动作，恢复姿态后稳定拍照。动作检测期间帧间隔上限为 350ms，整轮动作与稳定抓拍限时 15 秒；超时可重新检测。左右按使用者本人定义，与预览镜像无关。
+
+本页供手动选择动作联调；随机选择动作的 Vue 调用示例见 `../face-capture-widget/examples/Example.vue` 和 `CustomCapture.vue`。本机 Agent 必须支持 `verification-action` 能力；旧布尔参数已移除。详情见[交付记录](../docs/action-verification-validation.md)。

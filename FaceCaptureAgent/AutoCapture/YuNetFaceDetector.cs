@@ -9,9 +9,10 @@ public interface IFaceDetector : IDisposable
 }
 
 /// <summary>使用随程序发布的 YuNet 模型检测人脸框，模型在首次检测时加载。</summary>
-public sealed class YuNetFaceDetector : IFaceDetector
+public sealed class YuNetFaceDetector(string verificationAction = "none") : IFaceDetector
 {
     private FaceDetectorYN? _detector;
+    private EyeStateClassifier? _eyes;
 
     public Task<IReadOnlyList<FaceBox>> DetectAsync(JpegFrame frame, CancellationToken cancellationToken) =>
         Task.Run<IReadOnlyList<FaceBox>>(() =>
@@ -33,12 +34,24 @@ public sealed class YuNetFaceDetector : IFaceDetector
             _detector.Detect(input, output);
             cancellationToken.ThrowIfCancellationRequested();
             var faces = new List<FaceBox>();
-            // 仅取检测结果前四列的框坐标；保留模型输入坐标系供相对位移比较。
+            // 框保留模型输入坐标系；眼睛关键点映射回原图，避免缩小后丢失眼部细节。
             var rows = output.Rows;
             for (var row = 0; row < rows; row++)
-                faces.Add(new(output.At<float>(row, 0), output.At<float>(row, 1), output.At<float>(row, 2), output.At<float>(row, 3)));
+            {
+                var face = new FaceBox(output.At<float>(row, 0), output.At<float>(row, 1), output.At<float>(row, 2), output.At<float>(row, 3));
+                if (verificationAction != "none" && rows == 1)
+                {
+                    _eyes ??= new();
+                    Point2f Point(int column) => new((float)(output.At<float>(row, column) / scale), (float)(output.At<float>(row, column + 1) / scale));
+                    var sourceBox = new FaceBox(face.X / scale, face.Y / scale, face.Width / scale, face.Height / scale);
+                    var measurement = _eyes.MeasureFace(source, sourceBox, Point(4), Point(6));
+                    face = face with { Eyes = measurement?.Eyes.State ?? EyeState.Unknown, EyeMeasurement = measurement?.Eyes,
+                        MouthRatio = measurement?.MouthRatio ?? double.NaN, TurnRatio = measurement?.TurnRatio ?? double.NaN };
+                }
+                faces.Add(face);
+            }
             return faces;
         }, cancellationToken);
 
-    public void Dispose() => _detector?.Dispose();
+    public void Dispose() { _eyes?.Dispose(); _detector?.Dispose(); }
 }

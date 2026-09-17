@@ -42,6 +42,15 @@ onBeforeUnmount(() => {
             <option value="manual">手动拍照</option>
             <option value="auto">自动拍照（人脸稳定后拍一张）</option>
           </select>
+          <label for="verification-action">校验动作（每轮一种）</label>
+          <select id="verification-action" v-model="state.verificationAction"
+            :disabled="state.cameraOpen || !!state.busy || state.captureMode !== 'auto'">
+            <option value="none">不校验动作</option>
+            <option value="blink">眨眼</option>
+            <option value="mouth-open">张嘴</option>
+            <option value="turn-left">向本人左侧转头</option>
+            <option value="turn-right">向本人右侧转头</option>
+          </select>
           <label for="service-url">服务地址</label>
           <input id="service-url" v-model="state.url" type="url" spellcheck="false" :disabled="state.connected || !!state.busy" />
           <div class="button-row connection-buttons">

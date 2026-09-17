@@ -107,3 +107,6 @@ footer { padding: 24px 0; text-align: center; font-size: 13px; color: #7f8998; }
   .log-entry { gap: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* 动作校验开关与已有表单输入保持各自布局。 */
+.blink-option { display: flex; align-items: center; gap: 8px; }
+.blink-option input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }

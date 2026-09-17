@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCaptureController } from '../src/capture-controller.js';
 
+test('blink setting is forwarded and an old Agent is rejected', async () => {
+  let options;
+  const { controller: c } = setup({ async open(value) { options = value; return { width: 1280, height: 720 }; } });
+  c.state.verificationAction = 'blink';
+  await c.setCaptureMode('auto');
+  await c.connect();
+  await c.open({});
+  assert.equal(options.verificationAction, 'blink');
+  assert.equal(c.state.cameraOpen, false);
+  assert.match(c.state.error, /升级/);
+  c.disconnect();
+});
+
 function setup(overrides = {}) {
   let onClosed;
   const camera = {

@@ -2,6 +2,58 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FaceCaptureClient, FaceCaptureError } from './face-capture.js';
 
+test('blink-required round rejects an old Agent before binding or dispatching photos', async () => {
+  const { client, socket } = await connectedClient();
+  const photos = [];
+  client.on('auto.capture', photo => photos.push(photo));
+  const pending = client.open({ captureMode: 'auto', verificationAction: 'blink' });
+  const rejected = assert.rejects(pending, { code: 'ACTION_UNSUPPORTED' });
+  socket.emitJson({ type: 'camera.open.result', requestId: socket.lastRequest.requestId, data: { roundId: 'old', captureMode: 'auto' } });
+  socket.emitJson({ type: 'auto.capture', event: true, data: { roundId: 'old' } });
+  await rejected;
+  assert.equal(photos.length, 0);
+  client.disconnect();
+});
+
+test('rearm and mode changes inherit required blink and reject missing or false acknowledgement', async () => {
+  for (const command of ['rearm', 'setCaptureMode']) {
+    for (const acknowledgement of [undefined, false, 'none', 'turn-left']) {
+      const { client, socket } = await connectedClient();
+      const opening = client.open({ captureMode: 'auto', verificationAction: 'blink' });
+      socket.emitJson({ type: 'camera.open.result', requestId: socket.lastRequest.requestId, data: { roundId: 'first', verificationAction: 'blink' } });
+      await opening;
+      const photos = []; client.on('auto.capture', value => photos.push(value));
+      const commandResult = client[command]();
+      const rejected = assert.rejects(commandResult, { code: 'ACTION_UNSUPPORTED' });
+      socket.emitJson({ type: `${socket.lastRequest.type}.result`, requestId: socket.lastRequest.requestId,
+        data: { roundId: 'second', verificationAction: acknowledgement } });
+      socket.emitJson({ type: 'auto.capture', event: true, data: { roundId: 'second' } });
+      await rejected;
+      assert.equal(photos.length, 0);
+      client.disconnect();
+    }
+  }
+});
+
+test('each verification action reaches open and mode commands and binds matching events', async () => {
+  const { client, socket } = await connectedClient();
+  const seen = []; client.on('auto.capture', data => seen.push(data.roundId));
+  try {
+    for (const action of ['none', 'blink', 'mouth-open', 'turn-left', 'turn-right']) {
+      for (const method of ['open', 'setCaptureMode']) {
+        const pending = client[method]({ captureMode: 'auto', verificationAction: action });
+        const request = socket.lastRequest;
+        const roundId = action + method;
+        assert.equal(request.verificationAction, action);
+        socket.emitJson({ type: `${request.type}.result`, requestId: request.requestId, data: { roundId, verificationAction: action } });
+        socket.emitJson({ type: 'auto.capture', event: true, data: { roundId } });
+        await pending;
+        assert.equal(seen.at(-1), roundId);
+      }
+    }
+  } finally { client.disconnect(); }
+});
+
 class FakeWebSocket {
   constructor() {
     this.readyState = 0;
@@ -246,4 +298,25 @@ test('close invalidates active round immediately while awaiting its response', a
   await closed;
   assert.deepEqual(seen, []);
   client.disconnect();
+});
+
+test('rejected action change preserves acknowledged settings for rearm', async () => {
+  const { client, socket } = await connectedClient();
+  try {
+    const opened = client.open({ captureMode: 'auto', verificationAction: 'blink' });
+    socket.emitJson({ type: 'camera.open.result', requestId: socket.lastRequest.requestId,
+      data: { roundId: 'one', captureMode: 'auto', verificationAction: 'blink' } });
+    await opened;
+    const changed = client.setCaptureMode({ captureMode: 'auto', verificationAction: 'mouth-open', stableDurationMs: 1 });
+    const rejected = assert.rejects(changed, { code: 'INVALID_MESSAGE' });
+    socket.emitJson({ type: 'error', requestId: socket.lastRequest.requestId, error: { code: 'INVALID_MESSAGE' } });
+    await rejected;
+    const photos = []; client.on('auto.capture', data => photos.push(data));
+    const rearmed = client.rearm();
+    socket.emitJson({ type: 'capture.rearm.result', requestId: socket.lastRequest.requestId,
+      data: { roundId: 'two', captureMode: 'auto', verificationAction: 'blink' } });
+    await rearmed;
+    socket.emitJson({ type: 'auto.capture', event: true, data: { roundId: 'two' } });
+    assert.equal(photos.length, 1);
+  } finally { client.disconnect(); }
 });

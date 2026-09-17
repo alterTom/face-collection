@@ -189,7 +189,7 @@ await face.open({ deviceId: '0', captureMode: 'auto', stableDurationMs: 1500 });
 也可以指定版本或编译器路径：
 
 ```powershell
-.\scripts\build-installer.ps1 -Version 1.1.0 `
+.\scripts\build-installer.ps1 -Version 1.1.3 `
   -IsccPath 'D:\appInstall\Inno Setup 6\ISCC.exe'
 ```
 
@@ -235,3 +235,47 @@ npm --prefix face-capture-widget pack
 默认地址为 `http://127.0.0.1:17653/test/`。修改 `config.toml` 的 `listen_port` 后，按钮和内置页面的默认 WebSocket 地址都会使用该端口。服务启动完成前按钮不可用；浏览器启动失败时会显示可手动访问的地址。退出采集程序后测试页服务随之停止。
 
 源码构建现在需要 Node.js 22.12.0 或更高版本：.NET 构建会自动执行 Vue 生产构建并嵌入资源，首次缺少 node_modules 时自动执行 npm ci。已有依赖时，变更 package-lock.json 后应先执行 `npm --prefix vue3-demo ci`。独立 Vue 开发模式仍默认连接 17653 端口。
+## 独立动作校验
+
+自动模式用 `verificationAction` 指定本轮唯一动作，默认 `none`。已移除旧布尔开关，调用方需更新参数。
+
+| 参数值 | 本轮通过条件 |
+| --- | --- |
+| `none` | 单人脸稳定后拍照 |
+| `blink` | 双眼睁开 → 闭合 → 重新睁开 → 稳定抓拍 |
+| `mouth-open` | 正脸闭嘴 → 张嘴 → 闭嘴 → 稳定抓拍 |
+| `turn-left` | 正脸 → 向本人左侧转头 → 回正 → 稳定抓拍 |
+| `turn-right` | 正脸 → 向本人右侧转头 → 回正 → 稳定抓拍 |
+
+```js
+await client.open({ captureMode: 'auto', verificationAction: 'mouth-open', stableDurationMs: 1500 });
+await client.rearm(); // 使用同一动作重新校验
+await client.setCaptureMode({ captureMode: 'auto', verificationAction: 'turn-left' }); // 新动作、新轮次
+```
+
+`camera.open`、`camera.setCaptureMode`、`capture.rearm` 回显 `verificationAction`。`system.info` 提供 `verification-action` 能力及 `verificationActions` 列表。SDK 在绑定 roundId 前核对动作，缺少确认或返回另一动作会报 `ACTION_UNSUPPORTED`，不接受该轮照片。参数仅作用于自动模式，手动模式仍可直接拍照。未指定动作的模式切换沿用当前动作；新开摄像头默认 `none`。
+
+Vue 调用方在开始一轮之前，从四种动作中随机选一个传入；Agent 不做随机选择，也不组合其他动作。`face-capture-widget/examples/Example.vue` 展示随机调用，内置 `/test/` 页面提供动作下拉选择。预览镜像不改变左右定义：按使用者本人的左右提示。
+
+除眨眼原有状态外，`auto.status` 包含 `mouth-open-required`、`mouth-close-required`、`turn-left-required`、`turn-right-required`、`action-face-camera`、`action-return`、`action-passed`。每轮动作校验与稳定抓拍最多 15 秒，超时报 `ACTION_TIMEOUT`，需显式重试。无人脸、多人、关键点无效、明显位置/尺寸变化或超过 350ms 的帧间隔会重置动作进度。
+
+检测在本机完成，复用 YuNet 和 Face Mesh 离线模型。张嘴用唇间距/嘴宽，转头用鼻尖相对双眼轴的归一化偏移（不是角度估计）。新动作的初始、动作和恢复阶段均要求连续 200ms，返回自然姿态后才开始稳定计时。转头不依赖嘴部或眨眼状态，张嘴不依赖眨眼状态。
+
+这属于动作校验，不保证防照片/视频回放，也不做身份连续性识别。新动作的阈值及本人左右方向仍需真人摄像头验证，覆盖距离、光照、眼镜和目标设备性能；模拟帧测试不能代替现场验收。
+
+## 手动生成 Windows 安装包
+
+打包机需安装符合 `global.json` 的 .NET SDK（10.0.400，允许向更高特性带滚动）、Node.js 22.12+ 和 Inno Setup 6。在本目录运行：
+
+```powershell
+npm --prefix vue3-demo ci
+.\scripts\build-installer.ps1
+# 未自动找到 Inno Setup 时指定实际路径：
+.\scripts\build-installer.ps1 -IsccPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+```
+
+脚本依次恢复依赖、运行 Release 测试、构建并嵌入 Vue 页面、发布 Windows x64 自包含程序并编译安装包。输出为 `installer-output/刷脸认证.exe`，目标电脑无需安装 .NET 或 Node.js。
+
+可传 `-Version 1.1.4` 指定安装包版本；此参数只修改安装包元数据，不同步修改 Agent 项目版本或 `system.info.agentVersion`。当前默认版本仍为 `1.1.3`。此次动作版安装包于 2026-09-18 构建成功，但未执行安装或升级验收。
+
+完整功能、测试结果和验收边界见[独立动作校验交付记录](docs/action-verification-validation.md)。

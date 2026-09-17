@@ -7,6 +7,7 @@ const props = defineProps({
   serviceUrl: { type: String, default: 'ws://127.0.0.1:17653/face' },
   deviceId: { type: String, default: undefined },
   stableDurationMs: { type: Number, default: 1500 },
+  verificationAction: { type: String, default: 'none' },
   connectionTimeoutMs: { type: Number, default: 60_000 },
 });
 const emit = defineEmits(['result', 'success', 'connection-failed', 'error', 'cancelled', 'state-change', 'countdown']);
@@ -50,7 +51,7 @@ async function open() {
   state.value = { phase: 'idle', message: '', remainingSeconds: null };
 
   const current = createCaptureSession({ serviceUrl: props.serviceUrl, deviceId: props.deviceId,
-    stableDurationMs: props.stableDurationMs, connectionTimeoutMs: props.connectionTimeoutMs }, {
+    stableDurationMs: props.stableDurationMs, verificationAction: props.verificationAction, connectionTimeoutMs: props.connectionTimeoutMs }, {
     onState: publishState,
     onResult: result => {
       if (session !== current) return;

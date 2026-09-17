@@ -28,6 +28,7 @@ export class FaceCaptureClient {
     this._listeners = new Map();
     this._roundId = null;
     this._roundVersion = 0;
+    this._confirmedSettings = { version: 0, mode: 'manual', action: 'none' };
     this._socket = null;
     this._connectPromise = null;
     this._heartbeatTimer = null;
@@ -71,6 +72,7 @@ export class FaceCaptureClient {
       fps: options.fps,
       captureMode: options.captureMode,
       stableDurationMs: options.stableDurationMs,
+      verificationAction: options.verificationAction,
     });
   }
 
@@ -89,6 +91,7 @@ export class FaceCaptureClient {
   setCaptureMode(options = {}) {
     return this._sendRoundCommand('camera.setCaptureMode', {
       captureMode: options.captureMode, stableDurationMs: options.stableDurationMs,
+      verificationAction: options.verificationAction,
     });
   }
 
@@ -105,7 +108,12 @@ export class FaceCaptureClient {
   // 发命令前使旧轮次失效；只有最新轮次命令的响应才能重新绑定 roundId。
   _sendRoundCommand(type, fields = {}) {
     this._invalidateRound();
-    return this._sendCommand(type, fields, { roundVersion: this._roundVersion });
+    const initial = type === 'camera.open';
+    this._requestedMode = fields.captureMode ?? (initial ? 'manual' : this._requestedMode);
+    this._requestedAction = fields.verificationAction ?? (initial ? 'none' : this._requestedAction ?? 'none');
+    return this._sendCommand(type, fields, { roundVersion: this._roundVersion,
+      roundSettings: { mode: this._requestedMode, action: this._requestedAction },
+      requiredAction: this._requestedMode === 'auto' && this._requestedAction !== 'none' ? this._requestedAction : null });
   }
 
   /** 将连续 JPEG 帧显示到传入的 img 元素；预览频率受 Agent 配置上限限制。 */
@@ -274,7 +282,8 @@ export class FaceCaptureClient {
         }
       }, this._commandTimeoutMs);
 
-      this._pending.set(requestId, { resolve, reject, timer, roundVersion: options.roundVersion });
+      this._pending.set(requestId, { resolve, reject, timer, roundVersion: options.roundVersion,
+        roundSettings: options.roundSettings, requiredAction: options.requiredAction });
       try {
         socket.send(JSON.stringify(message));
       } catch (error) {
@@ -314,6 +323,11 @@ export class FaceCaptureClient {
     clearTimeout(pending.timer);
 
     if (message.type === 'error') {
+      // 服务端拒绝的配置没有生效；重拍必须沿用最后成功确认的动作。
+      if (pending.roundVersion === this._roundVersion) {
+        this._requestedMode = this._confirmedSettings.mode;
+        this._requestedAction = this._confirmedSettings.action;
+      }
       pending.reject(new FaceCaptureError(
         message.error?.code ?? 'UNKNOWN_ERROR',
         message.error?.message ?? 'The local face capture agent returned an error.',
@@ -323,6 +337,13 @@ export class FaceCaptureClient {
     }
 
     // 必须在 resolve 前同步绑定轮次，紧随响应到达的事件才能立即通过轮次校验。
+    if (pending.requiredAction && message.data?.verificationAction !== pending.requiredAction) {
+      pending.reject(new FaceCaptureError('ACTION_UNSUPPORTED', 'The local Agent did not confirm the requested verification action.', false));
+      return;
+    }
+    if (pending.roundSettings && pending.roundVersion > this._confirmedSettings.version) {
+      this._confirmedSettings = { ...pending.roundSettings, version: pending.roundVersion };
+    }
     if (pending.roundVersion !== undefined && pending.roundVersion === this._roundVersion) {
       this._roundId = typeof message.data?.roundId === 'string' ? message.data.roundId : null;
     }

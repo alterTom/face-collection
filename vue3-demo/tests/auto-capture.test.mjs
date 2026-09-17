@@ -33,7 +33,7 @@ test('auto selection delegates to Agent and pushed capture updates photo without
   const { c, calls, emit } = await setup();
   assert.equal(calls[0].captureMode, 'manual');
   await c.setCaptureMode('auto');
-  assert.deepEqual(calls[1], { captureMode: 'auto', stableDurationMs: 1500 });
+  assert.deepEqual(calls[1], { captureMode: 'auto', stableDurationMs: 1500, verificationAction: 'none' });
   emit('auto.status', { status: 'stabilizing' });
   assert.match(c.state.autoStatus, /稳定/);
   emit('auto.capture', { width: 640, height: 480, size: 1, base64: 'AA==' });

@@ -5,6 +5,14 @@ import CustomCapture from './CustomCapture.vue';
 const visible = ref(false), result = ref('尚未采集'), photoUrl = ref('');
 const serviceUrl = ref('ws://127.0.0.1:17653/face');
 const timeout = ref(60_000);
+const verificationAction = ref('blink');
+const actions = ['blink', 'mouth-open', 'turn-left', 'turn-right'];
+const actionLabels = { blink: '眨眼', 'mouth-open': '张嘴', 'turn-left': '向本人左侧转头', 'turn-right': '向本人右侧转头' };
+function startCapture() {
+  // 在打开组件前选定；检测期间不重新抽取，Agent 只接收确定的动作。
+  verificationAction.value = actions[crypto.getRandomValues(new Uint32Array(1))[0] % actions.length];
+  visible.value = true;
+}
 function clearPhoto() { if (photoUrl.value) URL.revokeObjectURL(photoUrl.value); photoUrl.value = ''; }
 function receive(value) {
   clearPhoto();
@@ -20,10 +28,11 @@ onBeforeUnmount(clearPhoto);
     <h1>人脸采集组件</h1><p>由业务系统打开弹窗，采集完成后接收照片。</p>
     <label>本机服务地址<input v-model="serviceUrl" /></label>
     <label>连接超时（毫秒）<input v-model.number="timeout" type="number" min="1" /></label>
-    <button @click="visible = true">开始人脸采集</button>
+    <button @click="startCapture">开始人脸采集</button>
+    <p>本轮校验动作：{{ actionLabels[verificationAction] }}（开始时随机选择）</p>
     <p role="status">{{ result }}</p><img v-if="photoUrl" :src="photoUrl" alt="调用方收到的照片" />
     <p class="note">本页面中的地址和超时配置用于联调，不会显示在组件弹窗中。照片仅保存在内存。</p>
-    <FaceCaptureDialog v-model="visible" :service-url="serviceUrl" :connection-timeout-ms="timeout" @result="receive" />
+    <FaceCaptureDialog v-model="visible" :service-url="serviceUrl" :connection-timeout-ms="timeout" :verification-action="verificationAction" @result="receive" />
     <CustomCapture :service-url="serviceUrl" :connection-timeout-ms="timeout" />
   </main>
 </template>
@@ -37,4 +46,6 @@ body { margin: 0; background: #f5f7fc; font-family: "Segoe UI", "Microsoft YaHei
 .example button { padding: 12px 24px; border: 0; border-radius: 8px; background: #465dce; color: white; font: inherit; cursor: pointer; }
 .example img { display: block; max-width: 100%; max-height: 260px; }
 .example .note { font-size: 13px; line-height: 1.8; color: #737d92; }
+.example .example-blink { display: flex; align-items: center; gap: 8px; }
+.example .example-blink input { width: 16px; margin: 0; }
 </style>

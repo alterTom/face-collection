@@ -12,6 +12,85 @@ namespace FaceCaptureAgent.Tests.Sessions;
 
 public sealed class AutoCaptureTests
 {
+    [Theory]
+    [InlineData("mouth-open")]
+    [InlineData("turn-left")]
+    [InlineData("turn-right")]
+    public async Task SelectedMotion_CapturesWithoutBlink_AndRearmRequiresNewMotion(string action)
+    {
+        var events = new ConcurrentQueue<JsonElement>();
+        var detector = new MotionDetector();
+        await using var session = new CaptureSession(Guid.NewGuid(), new FakeCameraService(), new(), new(), (_, _) => Task.CompletedTask,
+            (bytes, _) => { events.Enqueue(JsonDocument.Parse(bytes).RootElement.Clone()); return Task.CompletedTask; }, () => detector);
+        var fields = "\"captureMode\":\"auto\",\"stableDurationMs\":500,\"verificationAction\":\"" + action + "\"";
+        var opened = await Send(session, "camera.open", fields);
+        Assert.Equal(action, opened.GetProperty("data").GetProperty("verificationAction").GetString());
+        session.StartPendingAutoCapture();
+        await WaitFor(() => events.Any(e => e.GetProperty("type").GetString() == "auto.status"
+            && e.GetProperty("data").GetProperty("status").GetString() == action + "-required"));
+        Assert.DoesNotContain(events, e => e.GetProperty("type").GetString() == "auto.capture");
+        detector.Face = action switch
+        {
+            "mouth-open" => detector.Face with { MouthRatio = .5 },
+            "turn-left" => detector.Face with { TurnRatio = .35 },
+            _ => detector.Face with { TurnRatio = -.35 }
+        };
+        await WaitFor(() => events.Any(e => e.GetProperty("type").GetString() == "auto.status"
+            && e.GetProperty("data").GetProperty("status").GetString() == (action == "mouth-open" ? "mouth-close-required" : "action-return")));
+        detector.Face = detector.Face with { MouthRatio = .03, TurnRatio = 0 };
+        await WaitFor(() => events.Any(e => e.GetProperty("type").GetString() == "auto.capture"));
+        var rearmed = await Send(session, "capture.rearm");
+        Assert.Equal(action, rearmed.GetProperty("data").GetProperty("verificationAction").GetString());
+        events.Clear();
+        session.StartPendingAutoCapture();
+        await Task.Delay(900, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(events, e => e.GetProperty("type").GetString() == "auto.capture");
+        await Send(session, "camera.close");
+    }
+
+    private sealed class MotionDetector : IFaceDetector
+    {
+        public volatile FaceBox Face = new(100, 100, 100, 100) { MouthRatio = .03, TurnRatio = 0 };
+        public Task<IReadOnlyList<FaceBox>> DetectAsync(JpegFrame frame, CancellationToken token) =>
+            Task.FromResult<IReadOnlyList<FaceBox>>([Face]);
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task Blink_RequiresSequence_AfterEveryRearm()
+    {
+        var events = new ConcurrentQueue<JsonElement>();
+        var detector = new BlinkDetector();
+        await using var session = new CaptureSession(Guid.NewGuid(), new FakeCameraService(), new(), new(), (_, _) => Task.CompletedTask,
+            (bytes, _) => { events.Enqueue(JsonDocument.Parse(bytes).RootElement.Clone()); return Task.CompletedTask; }, () => detector);
+        var response = await Send(session, "camera.open", "\"captureMode\":\"auto\",\"stableDurationMs\":500,\"verificationAction\":\"blink\"");
+        Assert.Equal("blink", response.GetProperty("data").GetProperty("verificationAction").GetString());
+        session.StartPendingAutoCapture();
+        await Task.Delay(800, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(events, e => e.GetProperty("type").GetString() == "auto.capture");
+        detector.Eyes = EyeState.Closed;
+        await WaitFor(() => events.Any(e => e.GetProperty("type").GetString() == "auto.status" && e.GetProperty("data").GetProperty("status").GetString() == "blink-open-eyes"));
+        // 明确保留闭眼阶段，避免恰好一个计时器周期（约 49–50ms）落在最短时长边界。
+        await Task.Delay(150, TestContext.Current.CancellationToken);
+        detector.Eyes = EyeState.Open;
+        await WaitFor(() => events.Any(e => e.GetProperty("type").GetString() == "auto.capture"));
+        Assert.Equal("error", (await Send(session, "capture")).GetProperty("type").GetString());
+        await Send(session, "capture.rearm");
+        events.Clear();
+        session.StartPendingAutoCapture();
+        await Task.Delay(900, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(events, e => e.GetProperty("type").GetString() == "auto.capture");
+        await Send(session, "camera.close");
+    }
+
+    private sealed class BlinkDetector : IFaceDetector
+    {
+        public volatile EyeState Eyes = EyeState.Open;
+        public Task<IReadOnlyList<FaceBox>> DetectAsync(JpegFrame frame, CancellationToken token) =>
+            Task.FromResult<IReadOnlyList<FaceBox>>([new FaceBox(100, 100, 100, 100) { Eyes = Eyes }]);
+        public void Dispose() { }
+    }
+
     [Fact]
     public async Task Auto_CapturesOnceWithoutPreview_RearmCreatesNewRound_ManualStops()
     {

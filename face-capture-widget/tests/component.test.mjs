@@ -20,6 +20,16 @@ async function until(check) {
   await nextTick();
 }
 
+for (const action of ['blink', 'mouth-open', 'turn-left', 'turn-right']) {
+  test(`${action} passes through the shipped dialog and receives a photo`, async t => {
+    const agent = await startAgent({ captureDelay: 200 }); t.after(() => agent.close());
+    const c = mount({ serviceUrl: agent.url, verificationAction: action }); t.after(() => c.unmount());
+    await until(() => c.results.length === 1);
+    assert.equal(c.results[0].status, 'success');
+    assert.equal(agent.commands.find(c => c.type === 'camera.open').verificationAction, action);
+  });
+}
+
 test('embedded capture follows active without owning the host page or buttons', async t => {
   assert.ok(FaceCapture, 'package must export FaceCapture');
   const agent = await startAgent({ captureDelay: 100 }); t.after(() => agent.close());
