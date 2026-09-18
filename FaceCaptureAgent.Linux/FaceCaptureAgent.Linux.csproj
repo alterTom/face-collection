@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Version>1.1.3</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
+    <PythonExecutable Condition="'$(PythonExecutable)' == '' and '$(OS)' == 'Windows_NT'">python</PythonExecutable>
+    <PythonExecutable Condition="'$(PythonExecutable)' == ''">python3</PythonExecutable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../FaceCaptureAgent.Core/FaceCaptureAgent.Core.csproj" />
+    <PackageReference Include="OpenCvSharp5.runtime.linux-arm64" Version="5.0.0.20260806" Condition="'$(RuntimeIdentifier)' == 'linux-arm64' and '$(NativeLibraryDirectory)' == ''" />
+    <PackageReference Include="OpenCvSharp5.official.runtime.linux-x64" Version="5.0.0.20260806" Condition="'$(RuntimeIdentifier)' == 'linux-x64' and '$(NativeLibraryDirectory)' == ''" />
+    <Content Include="$(NativeLibraryDirectory)/**/*" Link="%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="'$(NativeLibraryDirectory)' != ''" />
+    <None Include="../config.toml" Link="config.toml" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../FaceCaptureAgent/Assets/face-capture.png" Link="face-capture.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="ValidateLinuxRuntime" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(RuntimeIdentifier)' != 'linux-arm64' and '$(RuntimeIdentifier)' != 'linux-x64'" Text="Linux host requires linux-arm64 or linux-x64." />
+  </Target>
+  <Target Name="RequireKylinNativeLibrary" BeforeTargets="PrepareForPublish">
+    <Error Condition="'$(RuntimeIdentifier)' == 'linux-arm64' and '$(NativeLibraryDirectory)' == ''" Text="Kylin glibc 2.31 cannot use the official ARM64 native package (requires 2.38). Build scripts/build-kylin-native.sh on compatible Linux and pass an absolute NativeLibraryDirectory." />
+    <Error Condition="'$(NativeLibraryDirectory)' != '' and !Exists('$(NativeLibraryDirectory)/libOpenCvSharpExtern.so')" Text="NativeLibraryDirectory must contain libOpenCvSharpExtern.so." />
+  </Target>
+  <Target Name="CheckPublishedLinuxAbi" AfterTargets="Publish">
+    <Exec Command="&quot;$(PythonExecutable)&quot; &quot;$(MSBuildProjectDirectory)/../scripts/check-linux-native.py&quot; &quot;$(PublishDir).&quot; --runtime $(RuntimeIdentifier) --max-glibc 2.31" />
+  </Target>
+</Project>

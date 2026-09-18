@@ -35,7 +35,9 @@ public sealed class OpenCvCameraServiceTests
     [Theory]
     [InlineData("0", 0)]
     [InlineData("9", 9)]
-    public void ParseDeviceIndex_AcceptsProbeRange(string id, int expected)
+    [InlineData("42", 42)]
+    [InlineData("2147483647", int.MaxValue)]
+    public void ParseDeviceIndex_AcceptsNonnegativeInteger(string id, int expected)
     {
         Assert.Equal(expected, OpenCvCameraService.ParseDeviceIndex(id));
     }
@@ -43,7 +45,10 @@ public sealed class OpenCvCameraServiceTests
     [Theory]
     [InlineData("")]
     [InlineData("-1")]
-    [InlineData("10")]
+    [InlineData("+1")]
+    [InlineData(" 1")]
+    [InlineData("/dev/video0")]
+    [InlineData("2147483648")]
     [InlineData("camera-zero")]
     public void ParseDeviceIndex_RejectsUnsupportedId(string id)
     {

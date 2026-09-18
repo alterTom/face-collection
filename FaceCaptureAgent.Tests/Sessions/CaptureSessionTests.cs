@@ -11,6 +11,20 @@ namespace FaceCaptureAgent.Tests.Sessions;
 public sealed class CaptureSessionTests
 {
     [Fact]
+    public async Task SystemInfo_ReportsActualOperatingSystemAndProcessArchitecture()
+    {
+        await using var fixture = new SessionFixture();
+        var response = await fixture.SendAsync("system.info");
+        var data = response.GetProperty("data");
+        var os = OperatingSystem.IsWindows() ? "windows" : "linux";
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+        Assert.True(data.TryGetProperty("os", out var reportedOs));
+        Assert.Equal(os, reportedOs.GetString());
+        Assert.Equal(architecture, data.GetProperty("architecture").GetString());
+        Assert.Equal($"{(os == "windows" ? "win" : "linux")}-{architecture}", data.GetProperty("platform").GetString());
+    }
+
+    [Fact]
     public async Task CaptureBeforeOpen_ReturnsInvalidState()
     {
         await using var fixture = new SessionFixture();

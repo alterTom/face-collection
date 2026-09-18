@@ -115,7 +115,7 @@ public sealed partial class CaptureSession : IAsyncDisposable
         ResponseEnvelope.Success(
             "system.info.result",
             message.RequestId,
-            new { agentVersion = "1.1.3", protocolVersion = "1.0", platform = "win-x64", capabilities = new[] { "auto-capture", "verification-action" }, verificationActions = new[] { "none", "blink", "mouth-open", "turn-left", "turn-right" } });
+            new { agentVersion = "1.1.3", protocolVersion = "1.0", platform = Hosting.AgentPlatform.RuntimeId, os = Hosting.AgentPlatform.OperatingSystemName, architecture = Hosting.AgentPlatform.Architecture, capabilities = new[] { "auto-capture", "verification-action" }, verificationActions = new[] { "none", "blink", "mouth-open", "turn-left", "turn-right" } });
 
     private async Task<ReadOnlyMemory<byte>> ListDevicesAsync(
         ClientMessage message,

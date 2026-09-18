@@ -4,6 +4,7 @@ node_modules/
 publish/
 installer-output/
 TestResults/
+__pycache__/
 *.user
 *.suo
 vue3-demo/public/face-detection/wasm/

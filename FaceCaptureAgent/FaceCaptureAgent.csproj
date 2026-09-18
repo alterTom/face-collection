@@ -10,7 +10,6 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <RootNamespace>FaceCaptureAgent</RootNamespace>
   </PropertyGroup>
-
   <ItemGroup>
     <None Update="Models\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Using Remove="System.Windows.Forms" />
@@ -18,19 +17,15 @@
     <PackageReference Include="OpenCvSharp5.Windows" Version="5.0.0.20260806" />
     <PackageReference Include="Tomlyn" Version="2.10.1" />
   </ItemGroup>
-
+  <PropertyGroup>
+    <SkipTestPageBuild Condition="'$(SkipTestPageBuild)' == ''">false</SkipTestPageBuild>
+  </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets\face-capture.ico" LogicalName="FaceCaptureAgent.AppIcon" />
     <None Include="..\config.toml" Link="config.toml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <Target Name="BuildTestPage" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
-    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(MSBuildProjectDirectory)\..\vue3-demo" Condition="!Exists('$(MSBuildProjectDirectory)\..\vue3-demo\node_modules')" />
-    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)\..\vue3-demo" />
-    <ItemGroup>
-      <TestPageAsset Include="..\vue3-demo\dist\**\*" />
-      <EmbeddedResource Include="@(TestPageAsset)">
-        <LogicalName>TestPage/%(TestPageAsset.RecursiveDir)%(TestPageAsset.Filename)%(TestPageAsset.Extension)</LogicalName>
-      </EmbeddedResource>
-    </ItemGroup>
-  </Target>
+  <ItemGroup>
+    <ProjectReference Include="../FaceCaptureAgent.Core/FaceCaptureAgent.Core.csproj" />
+    <Compile Remove="Camera/**/*.cs;Configuration/**/*.cs;Diagnostics/**/*.cs;Protocol/**/*.cs;Sessions/**/*.cs;AutoCapture/**/*.cs;Hosting/**/*.cs" />
+  </ItemGroup>
 </Project>

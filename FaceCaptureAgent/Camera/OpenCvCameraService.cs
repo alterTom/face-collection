@@ -42,9 +42,9 @@ public sealed class OpenCvCameraService : ICameraService
     public static int ParseDeviceIndex(string deviceId)
     {
         if (!int.TryParse(deviceId, NumberStyles.None, CultureInfo.InvariantCulture, out var index)
-            || index is < 0 or > 9)
+            || index < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(deviceId), "Camera device ID must be an index from 0 through 9.");
+            throw new ArgumentOutOfRangeException(nameof(deviceId), "Camera device ID must be a nonnegative integer index.");
         }
 
         return index;
@@ -59,20 +59,33 @@ public sealed class OpenCvCameraService : ICameraService
             return await Task.Run<IReadOnlyList<CameraDevice>>(() =>
             {
                 var devices = new List<CameraDevice>();
-                foreach (var index in CandidateIndices(_options.CameraIndex))
+                foreach (var index in CameraPlatform.Candidates(_options.CameraIndex))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     using var probe = TryCreateCapture(index);
                     if (probe is not null)
                     {
+                        // V4L2 also exposes metadata nodes; advertise only nodes returning an image.
+                        if (OperatingSystem.IsLinux())
+                        {
+                            using var frame = new Mat();
+                            if (!probe.Read(frame) || frame.Empty()) continue;
+                        }
                         devices.Add(new CameraDevice(
                             index.ToString(CultureInfo.InvariantCulture),
-                            $"Camera {index}"));
+                            OperatingSystem.IsLinux() ? CameraPlatform.LinuxName(index) : $"Camera {index}"));
                     }
                 }
 
                 return devices;
             }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (CameraException) { throw; }
+        catch (Exception exception)
+        {
+            throw new CameraException(ErrorCodes.CameraOpenFailed,
+                "Camera devices could not be enumerated. Check camera access and native camera dependencies.", true, exception);
         }
         finally
         {
@@ -247,23 +260,26 @@ public sealed class OpenCvCameraService : ICameraService
 
     private static VideoCapture? TryCreateCapture(int index)
     {
-        // 优先 Media Foundation，失败后回退 DirectShow，以兼容不同摄像头驱动。
-        foreach (var backend in new[] { VideoCaptureAPIs.MSMF, VideoCaptureAPIs.DSHOW })
+        foreach (var backend in CameraPlatform.Backends(OperatingSystem.IsWindows(), OperatingSystem.IsLinux()))
         {
             var capture = new VideoCapture();
+            var opened = false;
             try
             {
                 if (capture.Open(index, backend) && capture.IsOpened())
                 {
+                    opened = true;
                     return capture;
                 }
             }
-            catch
+            catch (OpenCVException)
             {
+                // An unavailable device/backend is expected during probing. Loader failures propagate.
             }
-
-            capture.Release();
-            capture.Dispose();
+            finally
+            {
+                if (!opened) capture.Dispose();
+            }
         }
 
         return null;

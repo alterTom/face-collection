@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../FaceCaptureAgent.Core/FaceCaptureAgent.Core.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.11" />
+    <PackageReference Include="xunit.v3" Version="4.0.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
+    <PackageReference Include="OpenCvSharp5.runtime.win" Version="5.0.0.20260806" Condition="'$(RuntimeIdentifier)' == 'win-x64'" />
+    <PackageReference Include="OpenCvSharp5.runtime.linux-arm64" Version="5.0.0.20260806" Condition="'$(RuntimeIdentifier)' == 'linux-arm64' and '$(NativeLibraryDirectory)' == ''" />
+    <PackageReference Include="OpenCvSharp5.official.runtime.linux-x64" Version="5.0.0.20260806" Condition="'$(RuntimeIdentifier)' == 'linux-x64' and '$(NativeLibraryDirectory)' == ''" />
+    <Content Include="$(NativeLibraryDirectory)/**/*" Link="%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Condition="'$(NativeLibraryDirectory)' != ''" />
+    <Compile Include="../FaceCaptureAgent.Tests/Camera/**/*.cs;../FaceCaptureAgent.Tests/Configuration/**/*.cs;../FaceCaptureAgent.Tests/Protocol/**/*.cs;../FaceCaptureAgent.Tests/Sessions/**/*.cs;../FaceCaptureAgent.Tests/Hosting/ActivityLogTests.cs" />
+    <None Include="../config.toml" Link="config.toml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

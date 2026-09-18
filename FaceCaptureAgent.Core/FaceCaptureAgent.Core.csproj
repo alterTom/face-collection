@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Version>1.1.3</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="OpenCvSharp5" Version="5.0.0.20260806" />
+    <PackageReference Include="Tomlyn" Version="2.10.1" />
+    <Compile Include="../FaceCaptureAgent/Camera/**/*.cs;../FaceCaptureAgent/Configuration/**/*.cs;../FaceCaptureAgent/Diagnostics/**/*.cs;../FaceCaptureAgent/Protocol/**/*.cs;../FaceCaptureAgent/Sessions/**/*.cs;../FaceCaptureAgent/AutoCapture/**/*.cs;../FaceCaptureAgent/Hosting/**/*.cs" />
+    <None Include="../FaceCaptureAgent/Models/**/*" Link="Models/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+  <Target Name="BuildTestPage" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(MSBuildProjectDirectory)/../vue3-demo" Condition="'$(SkipTestPageBuild)' != 'true' and !Exists('$(MSBuildProjectDirectory)/../vue3-demo/node_modules')" />
+    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)/../vue3-demo" Condition="'$(SkipTestPageBuild)' != 'true'" />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)/../vue3-demo/dist/index.html')" Text="Embedded test page is missing. Build vue3-demo before using SkipTestPageBuild=true." />
+    <ItemGroup>
+      <TestPageAsset Include="../vue3-demo/dist/**/*" />
+      <EmbeddedResource Include="@(TestPageAsset)">
+        <LogicalName>TestPage/%(TestPageAsset.RecursiveDir)%(TestPageAsset.Filename)%(TestPageAsset.Extension)</LogicalName>
+      </EmbeddedResource>
+    </ItemGroup>
+  </Target>
+</Project>

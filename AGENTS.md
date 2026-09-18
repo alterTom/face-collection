@@ -6,6 +6,12 @@
 
 ## 构建、测试与开发命令
 
+跨平台实现采用 `FaceCaptureAgent.Core/`（net10.0 共享核心）、`FaceCaptureAgent/`（Windows 宿主）和 `FaceCaptureAgent.Linux/`（Linux GTK 3 宿主）。核心通过链接编译复用原目录中的 Camera、Configuration、Diagnostics、Protocol、Sessions、AutoCapture、Hosting 源码；不要重复编译或引入 Windows Forms 依赖。`FaceCaptureAgent.Core.Tests/` 链接平台无关测试，Windows 集成与桌面测试仍在原测试项目。
+
+Linux 使用 V4L2 和实际 `/dev/videoN` 节点，Windows 保持 MSMF/DSHOW。麒麟 ARM64 glibc 2.31 不能使用要求 glibc 2.38 的当前官方 ARM64 原生包；发布必须提供兼容的 `NativeLibraryDirectory` 并通过 ABI 检查，步骤见 `docs/kylin-native-build.md` 和 `docs/kylin-deployment.md`。Linux 安装器位于 `installer/linux/`，只管理当前用户安装并保留配置；所有 `.sh` 必须保留 LF。构建、模拟安装测试和静态 ABI 检查不能替代麒麟实机、GTK、systemd、原生模型及摄像头验收。
+
+内置测试页资源由 Core 嵌入。`SkipTestPageBuild=true` 仅跳过 npm 构建，仍须嵌入现有 `vue3-demo/dist`；缺少产物必须报错。使用该参数前先构建前端，避免发布过期页面。
+
 Windows 程序目标为 `net10.0-windows`，以 `WinExe` 运行。`Desktop/` 管理 Windows Forms 托盘与日志窗口，`Diagnostics/` 保存线程安全的内存日志，`Assets/` 保存 PNG 源图、ICO 和生成记录。图标资源属于源码，应提交；安装包和发布目录属于生成物，不应提交。
 
 在仓库根目录使用 PowerShell：

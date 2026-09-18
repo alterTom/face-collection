@@ -1,11 +1,13 @@
-# FaceCaptureAgent Windows PoC
+# FaceCaptureAgent — Windows / 麒麟 Linux
 
 这是一个运行在用户电脑上的本机人脸采集程序。HTTP 业务页面通过
 `ws://127.0.0.1:17653/face` 调用普通 USB/UVC RGB 摄像头，显示 JPEG 预览并抓拍一张照片；抓拍结果以不带 Data URI 前缀的 Base64 返回。业务页面再把它提交给已有的人脸 1:1 比对 API。
 
 > **安全提示：** 按当前已确认的需求，本程序不校验令牌，也不校验 WebSocket `Origin`。任何能在这台电脑浏览器中运行的网页都可以尝试调用摄像头并取得抓拍照片。程序只监听 `127.0.0.1`，但这不能阻止本机恶意网页调用。正式部署前应再次确认是否接受这一风险。
 
-当前产物仅验证 Windows x64。本次 Windows 验证不能证明统信 UOS V20 + 飞腾 ARM64 或银河麒麟 V10 + 海光 x86-64 已兼容；国产 Linux 阶段应保持网页 SDK 和协议不变，替换为 V4L2 后端并在真实整机上测试。
+项目已采用共享核心与独立平台宿主：`FaceCaptureAgent.Core` 负责协议、会话、检测和内置测试页，`FaceCaptureAgent` 保留 Windows Forms 桌面，`FaceCaptureAgent.Linux` 提供 GTK 3 桌面和 V4L2 摄像头后端。历史目录名 `windows-poc` 保留。网页 SDK 和现有业务接口保持兼容，`system.info` 按运行环境返回平台、操作系统和架构。
+
+Windows x64 已完成回归、发布冒烟检查和安装包构建，详见 [2026-09-19 打包记录](docs/windows-package-2026-09-19.md)。Linux 支持 ARM64 / x64 构建配置，但尚未完成麒麟实机验收。目标银河麒麟 V10 SP1 2403 ARM64 使用 glibc 2.31，而当前官方 ARM64 OpenCV 原生包要求 glibc 2.38，因此发布必须提供兼容的自编译原生库，不能直接交付官方包。步骤见 [麒麟部署文档](docs/kylin-deployment.md)和[原生库构建说明](docs/kylin-native-build.md)。
 
 ## 环境与构建
 
@@ -64,7 +66,7 @@ Get-NetTCPConnection -LocalPort 17653 | Select-Object LocalAddress,LocalPort,Sta
 |---|---:|---|
 | `listen_address` | `127.0.0.1` | 监听地址；程序强制只能为 IPv4 回环地址 `127.0.0.1` |
 | `listen_port` | `17653` | WebSocket 端口，合法范围 1024–65535 |
-| `camera_index` | `0` | 默认摄像头索引；设备枚举范围为 0–9 |
+| `camera_index` | `0` | 默认摄像头索引；Windows 枚举 0–9，Linux 枚举实际 `/dev/videoN` 节点 |
 | `capture_width` | `1280` | 请求摄像头采用的宽度；最终响应返回实际宽度 |
 | `capture_height` | `720` | 请求摄像头采用的高度；最终响应返回实际高度 |
 | `preview_fps` | `5` | 浏览器预览帧率上限，合法范围 1–15 |
